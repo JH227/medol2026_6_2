@@ -112,7 +112,9 @@ function start(code) {
   initSocket();
   initInput();
   animate();
-  toast('进入房间: ' + code);
+  // 自动加载模型
+  document.getElementById('btnModel').style.display = 'inline-block';
+  setTimeout(function () { loadGaussianModel(MODEL_URL); }, 500);
 }
 
 // ============ Socket.io ============
@@ -220,7 +222,7 @@ function init3D() {
 // ============ 高斯泼溅模型加载 ============
 // 模型 URL — 暂时留空，待模型文件托管后填入
 // var MODEL_URL = '/models/minisu_preview.ply';
-var MODEL_URL = ''; // 设置为 '' 表示不自动加载
+var MODEL_URL = 'https://github.com/JH227/medol2026_6_2/releases/download/v0.1/minisu.splat';
 
 function loadGaussianModel(url) {
   if (!url) { toast('未配置模型 URL'); return; }
