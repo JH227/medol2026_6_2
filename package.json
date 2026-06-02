@@ -1,0 +1,15 @@
+{
+  "name": "metaverse-showroom",
+  "version": "1.0.0",
+  "description": "VS·Work风格元宇宙展厅 - 高斯泼溅3D场景",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@mkkellogg/gaussian-splats-3d": "^0.4.7",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4"
+  }
+}

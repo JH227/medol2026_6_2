@@ -1,0 +1,5 @@
+node_modules/
+public/models/*.ply
+public/models/*.splat
+*.log
+.env

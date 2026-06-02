@@ -1,0 +1,53 @@
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; font-family:-apple-system,sans-serif; overflow:hidden; color:#fff; }
+
+#viewer-container { position:fixed; inset:0; z-index:0; }
+
+/* 覆盖层 */
+.overlay { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.85); }
+.panel { background:#1a1a2e; border-radius:16px; padding:40px 32px; text-align:center; min-width:320px; max-width:420px; }
+.panel h1 { font-size:22px; margin-bottom:8px; }
+.panel h2 { font-size:16px; margin-bottom:16px; }
+.subtitle { color:#8892b0; margin-bottom:24px; font-size:14px; }
+
+.input-group { display:flex; gap:8px; margin-bottom:16px; }
+.input-group input { flex:1; padding:12px 16px; border-radius:10px; border:1px solid #333; background:#0f0f1a; color:#fff; font-size:18px; text-align:center; letter-spacing:4px; text-transform:uppercase; }
+.input-group input::placeholder { letter-spacing:0; font-size:14px; color:#555; }
+.input-group button, #create-room-btn { padding:12px 24px; border-radius:10px; border:none; background:#534AB7; color:#fff; font-size:14px; cursor:pointer; }
+.input-group button:hover, #create-room-btn:hover { background:#7F77DD; }
+.link-btn { background:transparent; border:1px solid #534AB7; color:#8892b0; }
+.info-text { margin-top:12px; font-size:13px; color:#8892b0; }
+
+/* 加载 */
+.progress-bar { width:100%; height:4px; background:#333; border-radius:2px; margin:16px 0; overflow:hidden; }
+#progress-fill { height:100%; width:0; background:#534AB7; transition:width 0.3s; }
+#loading-text { font-size:13px; color:#8892b0; }
+
+/* 底部控制栏 */
+#controls { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:50; }
+.control-bar { display:flex; gap:10px; align-items:center; background:rgba(26,26,46,0.9); border-radius:20px; padding:8px 16px; backdrop-filter:blur(10px); }
+.ctrl-btn { padding:10px 18px; border-radius:14px; border:1px solid #333; background:rgba(15,15,26,0.8); color:#ccc; font-size:13px; cursor:pointer; }
+.ctrl-btn.active { background:#534AB7; border-color:#534AB7; color:#fff; }
+.user-badge { font-size:13px; color:#8892b0; padding:0 8px; }
+
+/* 用户列表 */
+#user-list { position:fixed; top:20px; right:20px; z-index:50; background:rgba(26,26,46,0.9); border-radius:12px; padding:12px; min-width:160px; }
+#user-list .user-item { font-size:12px; color:#ccc; padding:4px 0; display:flex; gap:8px; align-items:center; }
+#user-list .user-dot { width:8px; height:8px; border-radius:50%; }
+#user-list .user-dot.speaking { background:#1D9E75; }
+#user-list .user-dot.muted { background:#555; }
+
+/* Toast */
+.toast { position:fixed; top:80px; left:50%; transform:translateX(-50%); z-index:200; background:rgba(26,26,46,0.95); padding:12px 24px; border-radius:10px; font-size:13px; opacity:0; transition:opacity 0.3s; pointer-events:none; }
+.toast.show { opacity:1; }
+
+/* 提示文字 */
+.hint { position:fixed; bottom:100px; left:50%; transform:translateX(-50%); z-index:30; font-size:13px; color:rgba(255,255,255,0.4); pointer-events:none; text-align:center; }
+
+/* 移动端适配 */
+@media (max-width:640px) {
+  .panel { min-width:auto; width:90%; padding:28px 20px; }
+  .panel h1 { font-size:18px; }
+  .control-bar { gap:6px; padding:6px 10px; }
+  .ctrl-btn { padding:8px 12px; font-size:11px; }
+}

@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>3D 多人空间</title>
+<style>
+*{margin:0;padding:0}
+body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee}
+
+/* 入口界面 */
+#entry{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.9)}
+.card{background:#1a1a2e;border-radius:20px;padding:40px 32px;text-align:center;min-width:320px;max-width:400px}
+.card h2{font-size:22px;font-weight:600;margin-bottom:4px;color:#fff}
+.card p{font-size:13px;color:#8892b0;margin-bottom:20px}
+.card input{width:100%;padding:14px 16px;border-radius:12px;border:1px solid #2a2a45;background:#0d0d1a;color:#fff;font-size:18px;text-align:center;letter-spacing:4px;box-sizing:border-box}
+.card input::placeholder{letter-spacing:1px;font-size:14px;color:#444}
+.card .btn{display:block;width:100%;margin-top:10px;padding:14px;border-radius:12px;border:none;font-size:15px;cursor:pointer;transition:opacity .2s}
+.card .btn:hover{opacity:.85}
+.card .btn-primary{background:#534AB7;color:#fff}
+.card .btn-outline{background:transparent;border:1px solid #534AB7;color:#8892b0}
+
+/* 底部控制栏 */
+#toolbar{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:40}
+.toolbar-inner{display:flex;gap:8px;background:rgba(18,18,36,.92);border-radius:20px;padding:8px 16px;backdrop-filter:blur(8px)}
+.tool-btn{padding:10px 20px;border-radius:14px;border:1px solid #2a2a45;background:rgba(10,10,20,.8);color:#999;font-size:13px;cursor:pointer}
+.tool-btn.active{background:#534AB7;border-color:#534AB7;color:#fff}
+.tool-badge{display:flex;align-items:center;gap:4px;color:#8892b0;font-size:12px;padding:0 8px}
+
+/* 用户列表 */
+#users{display:none;position:fixed;top:20px;right:20px;z-index:40;background:rgba(18,18,36,.9);border-radius:12px;padding:12px;min-width:140px}
+.user-item{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:#ccc}
+.user-dot{width:8px;height:8px;border-radius:50%}
+
+/* Toast */
+#toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;padding:12px 24px;background:rgba(83,74,183,.9);border-radius:12px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
+#toast.show{opacity:1}
+
+/* 提示 */
+#help{display:none;position:fixed;bottom:90px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.15);pointer-events:none}
+</style>
+</head>
+<body>
+
+<div id="entry"><div class="card">
+  <h2>3D 多人空间</h2>
+  <p>创建房间，邀请朋友一起探索</p>
+  <input id="roomInput" type="text" maxlength="12" placeholder="输入房间码（4-12位）" autocomplete="off" style="letter-spacing:1px;font-size:16px">
+    <button class="btn btn-primary" id="btnJoin">进入房间</button>
+    <button class="btn btn-outline" id="btnCreate">创建新房间</button>
+</div></div>
+
+<div id="toolbar">
+  <div class="toolbar-inner">
+    <button id="micBtn" class="tool-btn">语音关</button>
+    <button class="tool-btn" id="btnShare">分享</button>
+    <span class="tool-badge">在线 <span id="onlineCount">1</span></span>
+  </div>
+</div>
+
+<div id="users"></div>
+<div id="toast"></div>
+<div id="help">WASD 移动 | 鼠标拖拽旋转 | 滚轮缩放</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+// ============ 全局状态 ============
+var roomCode, myId, myColor;
+var scene, camera, renderer, controls;
+var users = {};
+var micOn = false, localStream;
+var move = { w: 0, s: 0, a: 0, d: 0 };
+var avatarMeshes = {};
+
+// ============ 房间入口 ============
+async function createRoom() {
+  var customCode = document.getElementById('roomInput').value.trim();
+  var r = await fetch('/api/room', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: customCode })
+  });
+  var d = await r.json();
+  if (d.error) { toast(d.error); return; }
+  document.getElementById('roomInput').value = d.code;
+  start(d.code);
+}
+
+function joinRoom() {
+  var code = document.getElementById('roomInput').value.trim().toUpperCase();
+  if (!code || code.length < 4) { toast('请输入有效房间码'); return; }
+  start(code);
+}
+
+function start(code) {
+  roomCode = code;
+  document.getElementById('entry').style.display = 'none';
+  document.getElementById('toolbar').style.display = 'block';
+  document.getElementById('users').style.display = 'block';
+  document.getElementById('help').style.display = 'block';
+  init3D();
+  initSocket();
+  initInput();
+  animate();
+  toast('进入房间: ' + code);
+}
+
+// ============ Socket.io ============
+function initSocket() {
+  var socket = io();
+  window.socket = socket;
+
+  socket.on('connect', () => {
+    socket.emit('join', { roomCode, name: 'User' + Date.now().toString(36).slice(-4) });
+  });
+
+  socket.on('users', (list) => {
+    list.forEach(u => {
+      users[u.id] = u;
+      if (u.isMe) { myId = u.id; myColor = u.color; }
+      else createAvatar(u);
+    });
+  });
+
+  socket.on('user-joined', (u) => {
+    users[u.id] = u;
+    createAvatar(u);
+  });
+
+  socket.on('user-moved', (d) => {
+    if (users[d.id]) users[d.id].pos = d.pos;
+    updateAvatar(d.id, d.pos);
+  });
+
+  socket.on('user-left', (id) => {
+    removeAvatar(id);
+    delete users[id];
+  });
+
+  // WebRTC signaling
+  socket.on('signal', (d) => {
+    if (window.peers && window.peers[d.from]) {
+      window.peers[d.from].signal(d.data);
+    }
+  });
+
+  socket.on('user-muted', (d) => {
+    var item = document.querySelector('.user-dot[data-id="' + d.id + '"]');
+    if (item) item.style.background = d.muted ? '#444' : '#1D9E75';
+  });
+}
+
+// ============ Three.js 3D ============
+function init3D() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111122);
+  scene.fog = new THREE.Fog(0x111122, 30, 120);
+
+  camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 200);
+  camera.position.set(8, 12, 25);
+  camera.lookAt(0, 1, 0);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+  renderer.domElement.style.position = 'fixed';
+  renderer.domElement.style.top = '0';
+  renderer.domElement.style.left = '0';
+  renderer.domElement.style.zIndex = '1';
+
+  // 轨道控制
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+  controls.maxPolarAngle = Math.PI * 0.85;
+  controls.minDistance = 3;
+  controls.maxDistance = 80;
+  controls.update();
+
+  // 光照
+  var amb = new THREE.AmbientLight(0x334466, 0.6);
+  scene.add(amb);
+  var dir = new THREE.DirectionalLight(0xffeedd, 0.8);
+  dir.position.set(20, 30, 10);
+  dir.castShadow = true;
+  scene.add(dir);
+
+  // 地面
+  var groundGeo = new THREE.PlaneGeometry(60, 60);
+  var groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 });
+  var ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // 网格辅助
+  var grid = new THREE.GridHelper(60, 60, 0x333355, 0x222244);
+  grid.position.y = 0.01;
+  scene.add(grid);
+
+  window.addEventListener('resize', function () {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+// ============ 用户 Avatar ============
+function createAvatar(user) {
+  var sphereGeo = new THREE.SphereGeometry(0.6, 16, 16);
+  var sphereMat = new THREE.MeshStandardMaterial({ color: user.color });
+  var head = new THREE.Mesh(sphereGeo, sphereMat);
+  head.castShadow = true;
+  head.position.set(user.pos.x, user.pos.y + 1.5, user.pos.z);
+
+  var bodyGeo = new THREE.CylinderGeometry(0.4, 0.45, 1.5, 8);
+  var bodyMat = new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 });
+  var body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.15;
+  head.add(body);
+
+  // 名字标签
+  var canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.font = '32px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText(user.name, 128, 42);
+  var tex = new THREE.CanvasTexture(canvas);
+  var labelMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  var label = new THREE.Sprite(labelMat);
+  label.position.y = 2.2;
+  label.scale.set(4, 1, 1);
+  head.add(label);
+
+  head.name = user.id;
+  scene.add(head);
+  avatarMeshes[user.id] = head;
+}
+
+function updateAvatar(id, pos) {
+  var mesh = avatarMeshes[id];
+  if (mesh) {
+    mesh.position.x = pos.x;
+    mesh.position.z = pos.z;
+  }
+}
+
+function removeAvatar(id) {
+  var mesh = avatarMeshes[id];
+  if (mesh) { scene.remove(mesh); delete avatarMeshes[id]; }
+}
+
+// ============ 移动控制 ============
+function initInput() {
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'w' || e.key === 'W') move.w = 1;
+    if (e.key === 's' || e.key === 'S') move.s = 1;
+    if (e.key === 'a' || e.key === 'A') move.a = 1;
+    if (e.key === 'd' || e.key === 'D') move.d = 1;
+  });
+  document.addEventListener('keyup', function (e) {
+    if (e.key === 'w' || e.key === 'W') move.w = 0;
+    if (e.key === 's' || e.key === 'S') move.s = 0;
+    if (e.key === 'a' || e.key === 'A') move.a = 0;
+    if (e.key === 'd' || e.key === 'D') move.d = 0;
+  });
+}
+
+function handleMovement() {
+  var speed = 0.2;
+  if (move.w) camera.translateZ(-speed);
+  if (move.s) camera.translateZ(speed);
+  if (move.a) camera.translateX(-speed);
+  if (move.d) camera.translateX(speed);
+  controls.target.copy(camera.position.clone().add(
+    camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10)
+  ));
+}
+
+// ============ 语音 ============
+async function toggleMic() {
+  if (!micOn) {
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micOn = true;
+      document.getElementById('micBtn').textContent = '语音开';
+      document.getElementById('micBtn').classList.add('active');
+      connectAllPeers();
+    } catch (e) {
+      toast('需要麦克风权限');
+    }
+  } else {
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    localStream = null; micOn = false;
+    document.getElementById('micBtn').textContent = '语音关';
+    document.getElementById('micBtn').classList.remove('active');
+    closeAllPeers();
+  }
+  if (window.socket) window.socket.emit('mute', !micOn);
+}
+
+// ============ WebRTC Peer ============
+window.peers = {};
+function SimplePeer(userId) {
+  var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  pc.onicecandidate = function (e) {
+    if (e.candidate && window.socket) {
+      window.socket.emit('signal', { to: userId, data: { type: 'candidate', candidate: e.candidate } });
+    }
+  };
+  pc.ontrack = function (e) {
+    var audio = new Audio(); audio.srcObject = e.streams[0]; audio.play().catch(function () { });
+  };
+  pc.onnegotiationneeded = async function () {
+    try {
+      var offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      window.socket.emit('signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription } });
+    } catch (e) { }
+  };
+
+  this.signal = async function (msg) {
+    try {
+      if (msg.type === 'offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        var answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        window.socket.emit('signal', { to: userId, data: { type: 'answer', sdp: pc.localDescription } });
+      } else if (msg.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      } else if (msg.type === 'candidate') {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      }
+    } catch (e) { }
+  };
+  this.close = function () { pc.close(); };
+
+  return this;
+}
+
+function connectAllPeers() {
+  Object.keys(users).forEach(function (id) {
+    if (id !== myId && !window.peers[id]) window.peers[id] = new SimplePeer(id);
+  });
+}
+
+function closeAllPeers() {
+  Object.keys(window.peers).forEach(function (id) { window.peers[id].close(); });
+  window.peers = {};
+}
+
+// ============ 渲染循环 ============
+var lastSync = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  handleMovement();
+  controls.update();
+
+  // 同步位置（每 100ms）
+  var now = Date.now();
+  if (now - lastSync > 100 && window.socket) {
+    window.socket.emit('move', { x: camera.position.x, y: camera.position.y, z: camera.position.z });
+    lastSync = now;
+  }
+
+  // 更新用户列表
+  var count = Object.keys(users).length;
+  document.getElementById('onlineCount').textContent = count;
+  var userList = document.getElementById('users');
+  userList.innerHTML = Object.values(users).map(function (u) {
+    return '<div class="user-item"><span class="user-dot" style="background:' + u.color + '" data-id="' + u.id + '"></span>' + (u.id === myId ? '我' : u.name) + '</div>';
+  }).join('');
+
+  renderer.render(scene, camera);
+}
+
+function shareRoom() {
+  navigator.clipboard.writeText(location.origin + '/?room=' + roomCode).then(function () { toast('链接已复制！发给朋友即可加入') });
+}
+
+function toast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(function () { el.classList.remove('show'); }, 2500);
+}
+
+// 绑定事件
+document.getElementById('btnJoin').addEventListener('click', joinRoom);
+document.getElementById('btnCreate').addEventListener('click', createRoom);
+document.getElementById('btnShare').addEventListener('click', shareRoom);
+document.getElementById('micBtn').addEventListener('click', toggleMic);
+document.getElementById('roomInput').addEventListener('keypress', function(e) { if (e.key === 'Enter') joinRoom(); });
+</script>
+</body>
+</html>
