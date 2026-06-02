@@ -3,12 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>3D 多人空间</title>
+<title>元宇宙展厅</title>
 <style>
 *{margin:0;padding:0}
 body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee}
 
-/* 入口界面 */
 #entry{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.9)}
 .card{background:#1a1a2e;border-radius:20px;padding:40px 32px;text-align:center;min-width:320px;max-width:400px}
 .card h2{font-size:22px;font-weight:600;margin-bottom:4px;color:#fff}
@@ -20,24 +19,26 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
 .card .btn-primary{background:#534AB7;color:#fff}
 .card .btn-outline{background:transparent;border:1px solid #534AB7;color:#8892b0}
 
-/* 底部控制栏 */
 #toolbar{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:40}
 .toolbar-inner{display:flex;gap:8px;background:rgba(18,18,36,.92);border-radius:20px;padding:8px 16px;backdrop-filter:blur(8px)}
 .tool-btn{padding:10px 20px;border-radius:14px;border:1px solid #2a2a45;background:rgba(10,10,20,.8);color:#999;font-size:13px;cursor:pointer}
 .tool-btn.active{background:#534AB7;border-color:#534AB7;color:#fff}
 .tool-badge{display:flex;align-items:center;gap:4px;color:#8892b0;font-size:12px;padding:0 8px}
 
-/* 用户列表 */
 #users{display:none;position:fixed;top:20px;right:20px;z-index:40;background:rgba(18,18,36,.9);border-radius:12px;padding:12px;min-width:140px}
 .user-item{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:#ccc}
 .user-dot{width:8px;height:8px;border-radius:50%}
 
-/* Toast */
 #toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;padding:12px 24px;background:rgba(83,74,183,.9);border-radius:12px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
 #toast.show{opacity:1}
 
-/* 提示 */
 #help{display:none;position:fixed;bottom:90px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.15);pointer-events:none}
+
+/* 模型加载进度 */
+#modelProgress{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:60;background:rgba(0,0,0,.85);border-radius:16px;padding:24px 32px;text-align:center}
+#modelProgress .bar{width:260px;height:6px;background:#2a2a45;border-radius:3px;margin-top:12px;overflow:hidden}
+#modelProgress .fill{width:0%;height:100%;background:#534AB7;transition:width .3s}
+#modelProgress .txt{font-size:13px;color:#8892b0;margin-top:8px}
 </style>
 </head>
 <body>
@@ -46,14 +47,15 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
   <h2>3D 多人空间</h2>
   <p>创建房间，邀请朋友一起探索</p>
   <input id="roomInput" type="text" maxlength="12" placeholder="输入房间码（4-12位）" autocomplete="off" style="letter-spacing:1px;font-size:16px">
-    <button class="btn btn-primary" id="btnJoin">进入房间</button>
-    <button class="btn btn-outline" id="btnCreate">创建新房间</button>
+  <button class="btn btn-primary" id="btnJoin">进入房间</button>
+  <button class="btn btn-outline" id="btnCreate">创建新房间</button>
 </div></div>
 
 <div id="toolbar">
   <div class="toolbar-inner">
     <button id="micBtn" class="tool-btn">语音关</button>
     <button class="tool-btn" id="btnShare">分享</button>
+    <button class="tool-btn" id="btnModel" style="display:none">加载模型</button>
     <span class="tool-badge">在线 <span id="onlineCount">1</span></span>
   </div>
 </div>
@@ -61,14 +63,15 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
 <div id="users"></div>
 <div id="toast"></div>
 <div id="help">WASD 移动 | 鼠标拖拽旋转 | 滚轮缩放</div>
+<div id="modelProgress"><div class="txt">正在加载 3D 场景模型...</div><div class="bar"><div class="fill" id="modelFill"></div></div><div class="txt" id="modelPct">0%</div></div>
 
+<!-- UMD 加载（不是 ES Module，GaussianSplats3D 需要全局 THREE） -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+<script src="/js/gaussian-splats-3d.umd.js"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script type="importmap">
-{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
-</script>
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+<script>
 // ============ 全局状态 ============
 var roomCode, myId, myColor;
 var scene, camera, renderer, controls;
@@ -76,6 +79,8 @@ var users = {};
 var micOn = false, localStream;
 var move = { w: 0, s: 0, a: 0, d: 0 };
 var avatarMeshes = {};
+var splatViewer = null;
+var modelLoaded = false;
 
 // ============ 房间入口 ============
 async function createRoom() {
@@ -115,44 +120,44 @@ function initSocket() {
   var socket = io();
   window.socket = socket;
 
-  socket.on('connect', () => {
-    socket.emit('join', { roomCode, name: 'User' + Date.now().toString(36).slice(-4) });
+  socket.on('connect', function () {
+    socket.emit('join', { roomCode: roomCode, name: 'User' + Date.now().toString(36).slice(-4) });
   });
 
-  socket.on('users', (list) => {
-    list.forEach(u => {
+  socket.on('users', function (list) {
+    list.forEach(function (u) {
       users[u.id] = u;
       if (u.isMe) { myId = u.id; myColor = u.color; }
       else createAvatar(u);
     });
   });
 
-  socket.on('user-joined', (u) => {
+  socket.on('user-joined', function (u) {
     users[u.id] = u;
     createAvatar(u);
-    // 如果我已经开麦，主动连接新人
     if (micOn && u.id !== myId) connectPeer(u.id, true);
   });
 
-  socket.on('user-moved', (d) => {
+  socket.on('user-moved', function (d) {
     if (users[d.id]) users[d.id].pos = d.pos;
     updateAvatar(d.id, d.pos);
   });
 
-  socket.on('user-left', (id) => {
+  socket.on('user-left', function (id) {
     removeAvatar(id);
     delete users[id];
   });
 
-  // WebRTC signaling
-  socket.on('signal', (d) => {
+  socket.on('signal', function (d) {
     console.log('收到信令:', d.from, d.data.type);
     handleSignal(d.from, d.data);
   });
 
-  socket.on('user-muted', (d) => {
-    var item = document.querySelector('.user-dot[data-id="' + d.id + '"]');
-    if (item) item.style.background = d.muted ? '#444' : '#1D9E75';
+  socket.on('user-muted', function (d) {
+    var items = document.querySelectorAll('.user-dot');
+    items.forEach(function (item) {
+      if (item.getAttribute('data-id') === d.id) item.style.background = d.muted ? '#444' : '#1D9E75';
+    });
   });
 }
 
@@ -176,8 +181,8 @@ function init3D() {
   renderer.domElement.style.left = '0';
   renderer.domElement.style.zIndex = '1';
 
-  // 轨道控制
-  controls = new OrbitControls(camera, renderer.domElement);
+  // OrbitControls (UMD 版本)
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 1, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.1;
@@ -187,8 +192,7 @@ function init3D() {
   controls.update();
 
   // 光照
-  var amb = new THREE.AmbientLight(0x334466, 0.6);
-  scene.add(amb);
+  scene.add(new THREE.AmbientLight(0x334466, 0.6));
   var dir = new THREE.DirectionalLight(0xffeedd, 0.8);
   dir.position.set(20, 30, 10);
   dir.castShadow = true;
@@ -196,13 +200,12 @@ function init3D() {
 
   // 地面
   var groundGeo = new THREE.PlaneGeometry(60, 60);
-  var groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 });
-  var ground = new THREE.Mesh(groundGeo, groundMat);
+  var ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 }));
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // 网格辅助
+  // 网格
   var grid = new THREE.GridHelper(60, 60, 0x333355, 0x222244);
   grid.position.y = 0.01;
   scene.add(grid);
@@ -214,10 +217,72 @@ function init3D() {
   });
 }
 
+// ============ 高斯泼溅模型加载 ============
+// 模型 URL — 暂时留空，待模型文件托管后填入
+// var MODEL_URL = '/models/minisu_preview.ply';
+var MODEL_URL = ''; // 设置为 '' 表示不自动加载
+
+function loadGaussianModel(url) {
+  if (!url) { toast('未配置模型 URL'); return; }
+  if (modelLoaded) { toast('模型已加载'); return; }
+
+  var prog = document.getElementById('modelProgress');
+  var fill = document.getElementById('modelFill');
+  var pct = document.getElementById('modelPct');
+  prog.style.display = 'block';
+
+  var GS3D = window['Gaussian Splats 3D'];
+  if (!GS3D) { toast('高斯渲染库未加载'); prog.style.display = 'none'; return; }
+
+  try {
+    splatViewer = new GS3D.Viewer({
+      cameraUp: [0, 1, 0],
+      initialCameraPosition: [10, 10, 30],
+      initialCameraLookAt: [0, 5, 0],
+      sharedMemoryForWorkers: false,
+      selfDrivenMode: false,
+      renderer: renderer,
+      camera: camera,
+      scene: scene,
+      controls: controls,
+      showLoadingUI: true
+    });
+
+    var updatePct = function (p) {
+      p = Math.round(p * 100);
+      fill.style.width = p + '%';
+      pct.textContent = p + '%';
+    };
+
+    // 模拟进度（库自身有进度但不好拦截）
+    updatePct(0.05);
+
+    splatViewer.addSplatScene(url, {
+      splatAlphaRemovalThreshold: 5,
+      showLoadingUI: true,
+      onProgress: updatePct
+    }).then(function () {
+      modelLoaded = true;
+      prog.style.display = 'none';
+      document.getElementById('btnModel').textContent = '模型已加载';
+      toast('3D 场景加载完成！');
+    }).catch(function (e) {
+      console.error('模型加载失败:', e);
+      prog.style.display = 'none';
+      toast('模型加载失败: ' + e.message);
+    });
+
+  } catch (e) {
+    console.error('创建 Viewer 失败:', e);
+    prog.style.display = 'none';
+    toast('创建渲染器失败: ' + e.message);
+  }
+}
+
 // ============ 用户 Avatar ============
 function createAvatar(user) {
   var sphereGeo = new THREE.SphereGeometry(0.6, 16, 16);
-  var sphereMat = new THREE.MeshStandardMaterial({ color: user.color });
+  var sphereMat = new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 });
   var head = new THREE.Mesh(sphereGeo, sphereMat);
   head.castShadow = true;
   head.position.set(user.pos.x, user.pos.y + 1.5, user.pos.z);
@@ -227,6 +292,11 @@ function createAvatar(user) {
   var body = new THREE.Mesh(bodyGeo, bodyMat);
   body.position.y = 0.15;
   head.add(body);
+
+  head.name = user.id;
+  head.material = sphereMat; // 保存引用用于语音发光
+  scene.add(head);
+  avatarMeshes[user.id] = head;
 
   // 名字标签
   var canvas = document.createElement('canvas');
@@ -240,10 +310,6 @@ function createAvatar(user) {
   label.position.y = 2.2;
   label.scale.set(4, 1, 1);
   head.add(label);
-
-  head.name = user.id;
-  scene.add(head);
-  avatarMeshes[user.id] = head;
 }
 
 function updateAvatar(id, pos) {
@@ -294,7 +360,6 @@ async function toggleMic() {
       micOn = true;
       document.getElementById('micBtn').textContent = '语音开';
       document.getElementById('micBtn').classList.add('active');
-      // 连接房间内所有其他人
       Object.keys(users).forEach(function (id) {
         if (id !== myId) connectPeer(id, true);
       });
@@ -302,7 +367,7 @@ async function toggleMic() {
       toast('需要麦克风权限');
     }
   } else {
-    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    if (localStream) localStream.getTracks().forEach(function (t) { t.stop(); });
     localStream = null; micOn = false;
     document.getElementById('micBtn').textContent = '语音关';
     document.getElementById('micBtn').classList.remove('active');
@@ -312,7 +377,6 @@ async function toggleMic() {
 }
 
 // ============ WebRTC ============
-window.peers = {};
 window.peerCons = {};
 
 function connectPeer(userId, isInitiator) {
@@ -322,11 +386,8 @@ function connectPeer(userId, isInitiator) {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   });
 
-  // 把我的音频流发给对方
   if (localStream) {
-    localStream.getTracks().forEach(function (t) {
-      pc.addTrack(t, localStream);
-    });
+    localStream.getTracks().forEach(function (t) { pc.addTrack(t, localStream); });
   }
 
   pc.onicecandidate = function (e) {
@@ -336,50 +397,36 @@ function connectPeer(userId, isInitiator) {
   };
 
   pc.ontrack = function (e) {
-    console.log('WebRTC: 收到远程音频流');
+    console.log('WebRTC: 收到远程音频');
     var audio = document.createElement('audio');
     audio.srcObject = e.streams[0];
     audio.autoplay = true;
-    audio.setAttribute('playsinline', '');
-    // 必须先由用户交互触发，用全局音频列表管理
     document.body.appendChild(audio);
-    var playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(function (err) {
-        console.log('WebRTC: 自动播放被阻止，等待用户点击', err);
-        // 点击任意位置恢复播放
-        document.addEventListener('click', function resumeAudio() {
-          audio.play().catch(function () { });
-          document.removeEventListener('click', resumeAudio);
-        }, { once: true });
-      });
-    }
-    if (!window.audioEls) window.audioEls = [];
-    window.audioEls.push(audio);
+    audio.play().catch(function () {
+      document.addEventListener('click', function r() {
+        audio.play().catch(function () { });
+        document.removeEventListener('click', r);
+      }, { once: true });
+    });
   };
 
   pc.oniceconnectionstatechange = function () {
-    console.log('WebRTC ICE状态:', pc.iceConnectionState);
+    console.log('ICE状态:', pc.iceConnectionState);
     if (pc.iceConnectionState === 'connected') {
       toast('语音已接通');
-      // 头像发光
       var mesh = avatarMeshes[userId];
       if (mesh && mesh.material) mesh.material.emissiveIntensity = 0.6;
     }
     if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-      var mesh2 = avatarMeshes[userId];
-      if (mesh2 && mesh2.material) mesh2.material.emissiveIntensity = 0.2;
+      var m2 = avatarMeshes[userId];
+      if (m2 && m2.material) m2.material.emissiveIntensity = 0.2;
       try { pc.close(); } catch (e) { }
       delete window.peerCons[userId];
     }
   };
 
   window.peerCons[userId] = pc;
-
-  // 只有发起方创建 Offer
-  if (isInitiator) {
-    createAndSendOffer(pc, userId);
-  }
+  if (isInitiator) createAndSendOffer(pc, userId);
 }
 
 async function createAndSendOffer(pc, userId) {
@@ -392,14 +439,11 @@ async function createAndSendOffer(pc, userId) {
 
 async function handleSignal(userId, msg) {
   var pc = window.peerCons[userId];
-
-  // 如果收到信号但还没有 PeerConnection，创建一个（非发起方）
   if (!pc && msg.type === 'offer') {
     connectPeer(userId, false);
     pc = window.peerCons[userId];
   }
   if (!pc) return;
-
   try {
     if (msg.type === 'offer') {
       await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -427,15 +471,14 @@ function animate() {
   requestAnimationFrame(animate);
   handleMovement();
   controls.update();
+  if (splatViewer && splatViewer.update) splatViewer.update();
 
-  // 同步位置（每 100ms）
   var now = Date.now();
   if (now - lastSync > 100 && window.socket) {
     window.socket.emit('move', { x: camera.position.x, y: camera.position.y, z: camera.position.z });
     lastSync = now;
   }
 
-  // 更新用户列表
   var count = Object.keys(users).length;
   document.getElementById('onlineCount').textContent = count;
   var userList = document.getElementById('users');
@@ -447,7 +490,9 @@ function animate() {
 }
 
 function shareRoom() {
-  navigator.clipboard.writeText(location.origin + '/?room=' + roomCode).then(function () { toast('链接已复制！发给朋友即可加入') });
+  navigator.clipboard.writeText(location.origin + '/?room=' + roomCode).then(function () {
+    toast('链接已复制！发给朋友即可加入');
+  });
 }
 
 function toast(msg) {
@@ -461,7 +506,10 @@ document.getElementById('btnJoin').addEventListener('click', joinRoom);
 document.getElementById('btnCreate').addEventListener('click', createRoom);
 document.getElementById('btnShare').addEventListener('click', shareRoom);
 document.getElementById('micBtn').addEventListener('click', toggleMic);
-document.getElementById('roomInput').addEventListener('keypress', function(e) { if (e.key === 'Enter') joinRoom(); });
+document.getElementById('btnModel').addEventListener('click', function () {
+  loadGaussianModel(MODEL_URL || prompt('输入模型文件 URL (.ply 或 .splat)'));
+});
+document.getElementById('roomInput').addEventListener('keypress', function (e) { if (e.key === 'Enter') joinRoom(); });
 </script>
 </body>
 </html>
