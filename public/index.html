@@ -130,6 +130,8 @@ function initSocket() {
   socket.on('user-joined', (u) => {
     users[u.id] = u;
     createAvatar(u);
+    // 如果我已经开麦，主动连接新人
+    if (micOn && u.id !== myId) connectPeer(u.id, true);
   });
 
   socket.on('user-moved', (d) => {
@@ -144,9 +146,7 @@ function initSocket() {
 
   // WebRTC signaling
   socket.on('signal', (d) => {
-    if (window.peers && window.peers[d.from]) {
-      window.peers[d.from].signal(d.data);
-    }
+    handleSignal(d.from, d.data);
   });
 
   socket.on('user-muted', (d) => {
@@ -293,7 +293,10 @@ async function toggleMic() {
       micOn = true;
       document.getElementById('micBtn').textContent = '语音开';
       document.getElementById('micBtn').classList.add('active');
-      connectAllPeers();
+      // 连接房间内所有其他人
+      Object.keys(users).forEach(function (id) {
+        if (id !== myId) connectPeer(id, true);
+      });
     } catch (e) {
       toast('需要麦克风权限');
     }
@@ -307,56 +310,92 @@ async function toggleMic() {
   if (window.socket) window.socket.emit('mute', !micOn);
 }
 
-// ============ WebRTC Peer ============
+// ============ WebRTC ============
 window.peers = {};
-function SimplePeer(userId) {
-  var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+window.peerCons = {};
+
+function connectPeer(userId, isInitiator) {
+  if (window.peerCons[userId]) return;
+
+  var pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  });
+
+  // 把我的音频流发给对方
+  if (localStream) {
+    localStream.getTracks().forEach(function (t) {
+      pc.addTrack(t, localStream);
+    });
+  }
 
   pc.onicecandidate = function (e) {
     if (e.candidate && window.socket) {
       window.socket.emit('signal', { to: userId, data: { type: 'candidate', candidate: e.candidate } });
     }
   };
+
   pc.ontrack = function (e) {
-    var audio = new Audio(); audio.srcObject = e.streams[0]; audio.play().catch(function () { });
-  };
-  pc.onnegotiationneeded = async function () {
-    try {
-      var offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      window.socket.emit('signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription } });
-    } catch (e) { }
+    var audio = new Audio();
+    audio.srcObject = e.streams[0];
+    audio.autoplay = true;
+    audio.play().catch(function () { });
+    // 保存引用防止被回收
+    if (!window.audioEls) window.audioEls = [];
+    window.audioEls.push(audio);
   };
 
-  this.signal = async function (msg) {
-    try {
-      if (msg.type === 'offer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        var answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        window.socket.emit('signal', { to: userId, data: { type: 'answer', sdp: pc.localDescription } });
-      } else if (msg.type === 'answer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      } else if (msg.type === 'candidate') {
-        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-      }
-    } catch (e) { }
+  pc.oniceconnectionstatechange = function () {
+    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+      pc.close();
+      delete window.peerCons[userId];
+    }
   };
-  this.close = function () { pc.close(); };
 
-  return this;
+  window.peerCons[userId] = pc;
+
+  // 只有发起方创建 Offer
+  if (isInitiator) {
+    createAndSendOffer(pc, userId);
+  }
 }
 
-function connectAllPeers() {
-  Object.keys(users).forEach(function (id) {
-    if (id !== myId && !window.peers[id]) window.peers[id] = new SimplePeer(id);
-  });
+async function createAndSendOffer(pc, userId) {
+  try {
+    var offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    window.socket.emit('signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription } });
+  } catch (e) { console.error('offer:', e); }
+}
+
+async function handleSignal(userId, msg) {
+  var pc = window.peerCons[userId];
+
+  // 如果收到信号但还没有 PeerConnection，创建一个（非发起方）
+  if (!pc && msg.type === 'offer') {
+    connectPeer(userId, false);
+    pc = window.peerCons[userId];
+  }
+  if (!pc) return;
+
+  try {
+    if (msg.type === 'offer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      var answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      window.socket.emit('signal', { to: userId, data: { type: 'answer', sdp: pc.localDescription } });
+    } else if (msg.type === 'answer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    } else if (msg.type === 'candidate') {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+    }
+  } catch (e) { console.error('signal:', e); }
 }
 
 function closeAllPeers() {
-  Object.keys(window.peers).forEach(function (id) { window.peers[id].close(); });
-  window.peers = {};
+  Object.keys(window.peerCons).forEach(function (id) {
+    try { window.peerCons[id].close(); } catch (e) { }
+  });
+  window.peerCons = {};
 }
 
 // ============ 渲染循环 ============
