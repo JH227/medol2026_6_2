@@ -146,6 +146,7 @@ function initSocket() {
 
   // WebRTC signaling
   socket.on('signal', (d) => {
+    console.log('收到信令:', d.from, d.data.type);
     handleSignal(d.from, d.data);
   });
 
@@ -335,18 +336,40 @@ function connectPeer(userId, isInitiator) {
   };
 
   pc.ontrack = function (e) {
-    var audio = new Audio();
+    console.log('WebRTC: 收到远程音频流');
+    var audio = document.createElement('audio');
     audio.srcObject = e.streams[0];
     audio.autoplay = true;
-    audio.play().catch(function () { });
-    // 保存引用防止被回收
+    audio.setAttribute('playsinline', '');
+    // 必须先由用户交互触发，用全局音频列表管理
+    document.body.appendChild(audio);
+    var playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(function (err) {
+        console.log('WebRTC: 自动播放被阻止，等待用户点击', err);
+        // 点击任意位置恢复播放
+        document.addEventListener('click', function resumeAudio() {
+          audio.play().catch(function () { });
+          document.removeEventListener('click', resumeAudio);
+        }, { once: true });
+      });
+    }
     if (!window.audioEls) window.audioEls = [];
     window.audioEls.push(audio);
   };
 
   pc.oniceconnectionstatechange = function () {
+    console.log('WebRTC ICE状态:', pc.iceConnectionState);
+    if (pc.iceConnectionState === 'connected') {
+      toast('语音已接通');
+      // 头像发光
+      var mesh = avatarMeshes[userId];
+      if (mesh && mesh.material) mesh.material.emissiveIntensity = 0.6;
+    }
     if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-      pc.close();
+      var mesh2 = avatarMeshes[userId];
+      if (mesh2 && mesh2.material) mesh2.material.emissiveIntensity = 0.2;
+      try { pc.close(); } catch (e) { }
       delete window.peerCons[userId];
     }
   };
