@@ -59,8 +59,9 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
 </script>
 <script type="module">
 import * as THREE from 'three';
+import { DropInViewer } from '/lib/gaussian-splats-3d.module.js';
 
-var roomCode, myId, myColor, scene, camera, renderer, splatMesh, gridHelper, modelLoaded=false;
+var roomCode, myId, myColor, scene, camera, renderer, gsViewer=null, gridHelper, modelLoaded=false;
 var users={}, avatarMeshes={};
 var move={w:0,s:0,a:0,d:0,q:0,e:0};
 var curVel={x:0,y:0,z:0};
@@ -69,7 +70,7 @@ var animateId=null,active=false;
 var panTarget=new THREE.Vector3(0,1,0);
 var rotateCenter=new THREE.Vector3(0,1,0); // 旋转中心固定在原点
 var mdLeft=false,mdRight=false,mx=0,my=0;
-var MODEL_URL='/models/minisu.splat';
+var MODEL_URL='/model/minisu.splat';
 
 // ========== 3D ==========
 function init3D() {
@@ -156,44 +157,38 @@ function handleMovement() {
   panTarget.x+=curVel.x;panTarget.y+=curVel.y;panTarget.z+=curVel.z;
 }
 
-// ========== 模型加载 ==========
+// ========== 高斯泼溅模型加载 ==========
 async function loadSplatModel(url) {
   if(modelLoaded)return;
   var p=document.getElementById('modelProgress');
   var fl=document.getElementById('modelFill');
   var pt=document.getElementById('modelPct');
   p.style.display='block';
+  fl.style.width='5%';pt.textContent='5%';
   try{
-    fl.style.width='10%';pt.textContent='10%';
-    var res=await fetch(url);
-    var ab=await res.arrayBuffer();
-    fl.style.width='50%';pt.textContent='50%';
-    var vc=ab.byteLength/32,dv=new DataView(ab),cv=new Uint8Array(ab);
-    var pos=new Float32Array(vc*3),col=new Float32Array(vc*4);
-    for(var i=0;i<vc;i++){
-      var o=i*32;
-      pos[i*3]=dv.getFloat32(o,true);
-      pos[i*3+1]=dv.getFloat32(o+4,true);
-      pos[i*3+2]=dv.getFloat32(o+8,true);
-      col[i*4]=cv[o+24]/255;
-      col[i*4+1]=cv[o+25]/255;
-      col[i*4+2]=cv[o+26]/255;
-      col[i*4+3]=cv[o+27]/255;
-    }
-    fl.style.width='80%';pt.textContent='80%';
-    var geo=new THREE.BufferGeometry();
-    geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
-    geo.setAttribute('color',new THREE.BufferAttribute(col,4));
-    splatMesh=new THREE.Points(geo,new THREE.PointsMaterial({
-      size:0.025,vertexColors:true,transparent:true,opacity:0.95,sizeAttenuation:true,depthWrite:false
-    }));
-    splatMesh.rotation.x=-Math.PI/2;
-    scene.add(splatMesh);
-    if(gridHelper)gridHelper.visible=false; // 隐藏网格
+    gsViewer=new DropInViewer({
+      camera:camera,
+      renderer:renderer,
+      sharedMemoryForWorkers:false,
+      integerBasedSort:true,
+      gpuAcceleratedSort:true
+    });
+    scene.add(gsViewer);
+    await gsViewer.addSplatScene(url,{
+      showLoadingUI:false,
+      splatAlphaRemovalThreshold:5,
+      rotation:[0,0,0,1],
+      scale:[1,1,1],
+      onProgress:function(pct){
+        fl.style.width=(5+pct*0.9)+'%';
+        pt.textContent=Math.round(5+pct*0.9)+'%';
+      }
+    });
     fl.style.width='100%';pt.textContent='100%';
     modelLoaded=true;
+    if(gridHelper)gridHelper.visible=false;
     setTimeout(function(){p.style.display='none';},300);
-    toast('模型加载完成！'+vc.toLocaleString()+'点');
+    toast('高斯泼溅模型加载完成！');
   }catch(e){
     console.error(e);p.style.display='none';
     toast('加载失败:'+e.message);
@@ -322,12 +317,14 @@ function exitRoom(){
   micOn=false;
   // 关peer
   Object.keys(peerCons).forEach(function(id){try{peerCons[id].close();}catch(e){}delete peerCons[id];});
+  // 清GS
+  if(gsViewer){gsViewer.dispose();if(gsViewer.parent)gsViewer.parent.remove(gsViewer);gsViewer=null;}
   // 清用户
   Object.keys(avatarMeshes).forEach(function(id){var m=avatarMeshes[id];if(m)scene.remove(m);});
   avatarMeshes={};users={};myId=null;
   // 关3D
   if(renderer){renderer.dispose();document.body.removeChild(renderer.domElement);renderer=null;}
-  scene=null;camera=null;splatMesh=null;gridHelper=null;modelLoaded=false;
+  scene=null;camera=null;gridHelper=null;modelLoaded=false;
   // 重置UI
   document.getElementById('toolbar').style.display='none';
   document.getElementById('users').style.display='none';
