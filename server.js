@@ -2,12 +2,34 @@ const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const { join } = require('path');
+const https = require('https');
 
 const app = express();
 const http = createServer(app);
 const io = new Server(http);
 
 app.use(express.static(join(__dirname, 'public')));
+
+// CORS 代理：从 GitHub Release 获取模型文件  
+app.get('/model/minisu.splat', (req, res) => {
+  const modelUrl = 'https://github.com/JH227/medol2026_6_2/releases/download/v0.1/minisu.splat';
+  https.get(modelUrl, { headers: { 'User-Agent': 'Railway/1.0' } }, (proxyRes) => {
+    // 处理重定向
+    if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+      https.get(proxyRes.headers.location, { headers: { 'User-Agent': 'Railway/1.0' } }, (finalRes) => {
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Content-Length', finalRes.headers['content-length'] || '105624544');
+        finalRes.pipe(res);
+      }).on('error', () => { res.status(500).send('Model fetch error'); });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Length', proxyRes.headers['content-length'] || '105624544');
+    proxyRes.pipe(res);
+  }).on('error', () => { res.status(500).send('Model fetch error'); });
+});
 
 const rooms = {};
 
