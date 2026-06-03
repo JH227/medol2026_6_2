@@ -7,33 +7,25 @@
 <style>
 *{margin:0;padding:0}
 body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee}
-
 #entry{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.9)}
 .card{background:#1a1a2e;border-radius:20px;padding:40px 32px;text-align:center;min-width:320px;max-width:400px}
 .card h2{font-size:22px;font-weight:600;margin-bottom:4px;color:#fff}
 .card p{font-size:13px;color:#8892b0;margin-bottom:20px}
-.card input{width:100%;padding:14px 16px;border-radius:12px;border:1px solid #2a2a45;background:#0d0d1a;color:#fff;font-size:18px;text-align:center;letter-spacing:4px;box-sizing:border-box}
-.card input::placeholder{letter-spacing:1px;font-size:14px;color:#444}
-.card .btn{display:block;width:100%;margin-top:10px;padding:14px;border-radius:12px;border:none;font-size:15px;cursor:pointer;transition:opacity .2s}
-.card .btn:hover{opacity:.85}
+.card input{width:100%;padding:14px 16px;border:1px solid #2a2a45;border-radius:12px;background:#0d0d1a;color:#fff;font-size:18px;text-align:center;letter-spacing:4px;box-sizing:border-box}
+.card .btn{display:block;width:100%;margin-top:10px;padding:14px;border-radius:12px;border:none;font-size:15px;cursor:pointer}
 .card .btn-primary{background:#534AB7;color:#fff}
 .card .btn-outline{background:transparent;border:1px solid #534AB7;color:#8892b0}
-
 #toolbar{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:40}
 .toolbar-inner{display:flex;gap:8px;background:rgba(18,18,36,.92);border-radius:20px;padding:8px 16px;backdrop-filter:blur(8px)}
 .tool-btn{padding:10px 20px;border-radius:14px;border:1px solid #2a2a45;background:rgba(10,10,20,.8);color:#999;font-size:13px;cursor:pointer}
 .tool-btn.active{background:#534AB7;border-color:#534AB7;color:#fff}
-.tool-badge{display:flex;align-items:center;gap:4px;color:#8892b0;font-size:12px;padding:0 8px}
-
+.tool-badge{padding:0 8px;color:#8892b0;font-size:12px;display:flex;align-items:center;gap:4px}
 #users{display:none;position:fixed;top:20px;right:20px;z-index:40;background:rgba(18,18,36,.9);border-radius:12px;padding:12px;min-width:140px}
 .user-item{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:#ccc}
 .user-dot{width:8px;height:8px;border-radius:50%}
-
-#toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;padding:12px 24px;background:rgba(83,74,183,.9);border-radius:12px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
+#toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;padding:12px 24px;background:rgba(83,74,183,.9);border-radius:12px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .3s}
 #toast.show{opacity:1}
-
-#help{display:none;position:fixed;bottom:90px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.15);pointer-events:none}
-
+#help{display:none;position:fixed;bottom:90px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.3);pointer-events:none}
 #modelProgress{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:60;background:rgba(0,0,0,.85);border-radius:16px;padding:24px 32px;text-align:center}
 #modelProgress .bar{width:260px;height:6px;background:#2a2a45;border-radius:3px;margin-top:12px;overflow:hidden}
 #modelProgress .fill{width:0%;height:100%;background:#534AB7;transition:width .3s}
@@ -41,449 +33,355 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
 </style>
 </head>
 <body>
-
 <div id="entry"><div class="card">
-  <h2>元宇宙展厅</h2>
-  <p>创建房间，邀请朋友一起探索</p>
+  <h2>元宇宙展厅<span id="adminBadge" style="display:none;font-size:11px;color:#ffd700;margin-left:8px">管理员</span></h2>
+  <p id="entryDesc">输入房间码加入</p>
   <input id="roomInput" type="text" maxlength="12" placeholder="输入房间码（4-12位）" autocomplete="off" style="letter-spacing:1px;font-size:16px">
   <button class="btn btn-primary" id="btnJoin">进入房间</button>
-  <button class="btn btn-outline" id="btnCreate">创建新房间</button>
+  <button class="btn btn-outline admin-only" id="btnCreate" style="display:none">创建普通房间（无模型）</button>
+  <button class="btn btn-primary admin-only" id="btnCreateShowroom" style="display:none;background:#2d8a4e">创建展厅（有模型·永久）</button>
 </div></div>
-
 <div id="toolbar">
   <div class="toolbar-inner">
     <button id="micBtn" class="tool-btn">语音关</button>
     <button class="tool-btn" id="btnShare">分享</button>
+    <button class="tool-btn" id="btnExit">退出</button>
     <span class="tool-badge">在线 <span id="onlineCount">1</span></span>
   </div>
 </div>
-
-<div id="users"></div>
-<div id="toast"></div>
-<div id="help">WASD 移动 | 鼠标拖拽旋转 | 滚轮缩放 | 右键平移</div>
+<div id="users"></div><div id="toast"></div>
+<div id="help">鼠标左平移 | 鼠标右旋转 | 滚轮缩放 | WASD移动 | Q上升E下降</div>
 <div id="modelProgress"><div class="txt">正在加载 3D 场景模型...</div><div class="bar"><div class="fill" id="modelFill"></div></div><div class="txt" id="modelPct">0%</div></div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-<script src="/js/gaussian-splats-3d.umd.js"></script>
 <script src="/socket.io/socket.io.js"></script>
-
-<script>
-// 检查 Three.js 是否加载成功
-if (!window.THREE) { document.body.innerHTML = '<h1 style="color:red;padding:40px">Three.js 加载失败，请刷新</h1>'; }
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}
 </script>
+<script type="module">
+import * as THREE from 'three';
 
-<script>
-// ============ 全局状态 ============
-var roomCode, myId, myColor;
-var scene, camera, renderer, controls;
-var users = {};
-var micOn = false, localStream;
-var move = { w: 0, s: 0, a: 0, d: 0 };
-var avatarMeshes = {};
-var splatViewer = null;
-var modelLoaded = false;
+var roomCode, myId, myColor, scene, camera, renderer, splatMesh, gridHelper, modelLoaded=false;
+var users={}, avatarMeshes={};
+var move={w:0,s:0,a:0,d:0,q:0,e:0};
+var curVel={x:0,y:0,z:0};
+var micOn=false,localStream,peerCons={};
+var animateId=null,active=false;
+var panTarget=new THREE.Vector3(0,1,0);
+var rotateCenter=new THREE.Vector3(0,1,0); // 旋转中心固定在原点
+var mdLeft=false,mdRight=false,mx=0,my=0;
+var MODEL_URL='/models/minisu.splat';
 
-// 模型下载链接
-var MODEL_URL = '/model/minisu.splat';
-
-// ============ 精简 OrbitControls ============
-function makeOrbitControls(cam, el, tgt) {
-  var target = new THREE.Vector3(tgt[0], tgt[1], tgt[2]);
-  var pMin = 0.1, pMax = Math.PI * 0.85, dMin = 3, dMax = 80;
-  var md = false, mdx = 0, mdy = 0, rl = false;
-
-  el.addEventListener('mousedown', function (e) {
-    if (e.button === 0) { md = true; mdx = e.clientX; mdy = e.clientY; }
-    if (e.button === 2) { rl = true; mdx = e.clientX; mdy = e.clientY; }
-  });
-  el.addEventListener('mousemove', function (e) {
-    if (!md && !rl) return;
-    var dx = e.clientX - mdx, dy = e.clientY - mdy;
-    if (md) {
-      var s = new THREE.Spherical().setFromVector3(cam.position.clone().sub(target));
-      s.theta -= dx * 0.005;
-      s.phi -= dy * 0.005;
-      s.phi = Math.max(pMin, Math.min(pMax, s.phi));
-      s.radius = Math.max(dMin, Math.min(dMax, s.radius));
-      cam.position.copy(target).add(new THREE.Vector3().setFromSpherical(s));
-    }
-    if (rl) {
-      var fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
-      var up = new THREE.Vector3(0, 1, 0);
-      var side = new THREE.Vector3().crossVectors(up, fwd).normalize();
-      var pan = side.multiplyScalar(dx * 0.1).add(up.clone().multiplyScalar(-dy * 0.1));
-      target.add(pan); cam.position.add(pan);
-    }
-    mdx = e.clientX; mdy = e.clientY;
-  });
-  el.addEventListener('mouseup', function () { md = false; rl = false; });
-  el.addEventListener('wheel', function (e) {
-    var d = cam.position.distanceTo(target);
-    d += e.deltaY * 0.02;
-    d = Math.max(dMin, Math.min(dMax, d));
-    cam.position.copy(target).add(cam.position.clone().sub(target).normalize().multiplyScalar(d));
-  });
-  el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-  el.addEventListener('touchstart', function (e) {
-    if (e.touches.length === 1) { md = true; mdx = e.touches[0].clientX; mdy = e.touches[0].clientY; }
-  }, { passive: false });
-  el.addEventListener('touchmove', function (e) {
-    if (!md || e.touches.length !== 1) return;
-    e.preventDefault();
-    var dx = e.touches[0].clientX - mdx, dy = e.touches[0].clientY - mdy;
-    var s = new THREE.Spherical().setFromVector3(cam.position.clone().sub(target));
-    s.theta -= dx * 0.005; s.phi -= dy * 0.005;
-    s.phi = Math.max(pMin, Math.min(pMax, s.phi));
-    cam.position.copy(target).add(new THREE.Vector3().setFromSpherical(s));
-    mdx = e.touches[0].clientX; mdy = e.touches[0].clientY;
-  }, { passive: false });
-  return { target: target, update: function () { cam.lookAt(target); } };
-}
-
-// ============ 3D 初始化 ============
+// ========== 3D ==========
 function init3D() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111122);
-  scene.fog = new THREE.Fog(0x111122, 30, 120);
-
-  camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 200);
-  camera.position.set(8, 12, 25);
-
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.domElement.style.position = 'fixed';
-  renderer.domElement.style.top = '0';
-  renderer.domElement.style.left = '0';
-  renderer.domElement.style.zIndex = '1';
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x111122);
+  camera=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,0.1,200);
+  camera.position.set(8,12,25);
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   document.body.appendChild(renderer.domElement);
 
-  controls = makeOrbitControls(camera, renderer.domElement, [0, 1, 0]);
+  scene.add(new THREE.AmbientLight(0x334466,0.6));
+  var dl=new THREE.DirectionalLight(0xffeedd,0.8);
+  dl.position.set(20,30,10);scene.add(dl);
+  var grid=new THREE.GridHelper(60,60,0x333355,0x222244);
+  grid.position.y=0.01;scene.add(grid);
+  gridHelper=grid;
 
-  scene.add(new THREE.AmbientLight(0x334466, 0.6));
-  var dir = new THREE.DirectionalLight(0xffeedd, 0.8);
-  dir.position.set(20, 30, 10);
-  scene.add(dir);
-
-  var ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(60, 60),
-    new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
-
-  var grid = new THREE.GridHelper(60, 60, 0x333355, 0x222244);
-  grid.position.y = 0.01;
-  scene.add(grid);
-
-  window.addEventListener('resize', function () {
-    camera.aspect = innerWidth / innerHeight;
+  // 控制
+  renderer.domElement.addEventListener('mousedown',function(e){
+    if(e.button===0){mdLeft=true;mx=e.clientX;my=e.clientY;}
+    if(e.button===2){mdRight=true;mx=e.clientX;my=e.clientY;e.preventDefault();}
+  });
+  document.addEventListener('mouseup',function(e){
+    if(e.button===0)mdLeft=false;
+    if(e.button===2)mdRight=false;
+  });
+  renderer.domElement.addEventListener('contextmenu',function(e){e.preventDefault();});
+  renderer.domElement.addEventListener('mousemove',function(e){
+    var dx=e.clientX-mx,dy=e.clientY-my;
+    if(mdRight){
+      // 右键旋转视角（绕模型中心）
+      var rel=camera.position.clone().sub(rotateCenter);
+      var sp=new THREE.Spherical().setFromVector3(rel);
+      sp.theta-=dx*0.005;sp.phi-=dy*0.005;
+      camera.position.copy(rotateCenter).add(new THREE.Vector3().setFromSpherical(sp));
+      camera.lookAt(rotateCenter);
+    } else if(mdLeft){
+      var right=new THREE.Vector3().crossVectors(camera.up,camera.getWorldDirection(new THREE.Vector3())).normalize();
+      var up=new THREE.Vector3().copy(camera.up);
+      var pan=right.multiplyScalar(-dx*0.05).add(up.multiplyScalar(dy*0.05));
+      panTarget.add(pan);camera.position.add(pan);
+    }
+    mx=e.clientX;my=e.clientY;
+  });
+  renderer.domElement.addEventListener('wheel',function(e){
+    var dist=camera.position.distanceTo(rotateCenter);
+    dist+=e.deltaY*0.05;
+    dist=Math.max(1,Math.min(200,dist));
+    var dir=camera.position.clone().sub(rotateCenter).normalize();
+    camera.position.copy(rotateCenter).add(dir.multiplyScalar(dist));
+  });
+  window.addEventListener('resize',function(){
+    camera.aspect=innerWidth/innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
+    renderer.setSize(innerWidth,innerHeight);
   });
 }
 
-// ============ 高斯模型加载 ============
-function loadGaussianModel(url) {
-  if (!url) { toast('未配置模型 URL'); return; }
-  if (modelLoaded) { toast('模型已加载'); return; }
-
-  var GS = window['Gaussian Splats 3D'];
-  if (!GS) { toast('高斯渲染库未找到'); return; }
-
-  document.getElementById('modelProgress').style.display = 'block';
-  var fill = document.getElementById('modelFill');
-  var pct = document.getElementById('modelPct');
-
-  try {
-    splatViewer = new GS.Viewer({
-      cameraUp: [0, 1, 0],
-      initialCameraPosition: [10, 10, 30],
-      initialCameraLookAt: [0, 5, 0],
-      sharedMemoryForWorkers: false,
-      selfDrivenMode: false,
-      renderer: renderer,
-      camera: camera,
-      scene: scene,
-      controls: controls,
-      showLoadingUI: true
-    });
-
-    fill.style.width = '5%'; pct.textContent = '5%';
-
-    splatViewer.addSplatScene(url, {
-      splatAlphaRemovalThreshold: 5,
-      showLoadingUI: true,
-      onProgress: function (p) {
-        var pp = Math.round(p * 100);
-        fill.style.width = pp + '%';
-        pct.textContent = pp + '%';
-      }
-    }).then(function () {
-      modelLoaded = true;
-      document.getElementById('modelProgress').style.display = 'none';
-      toast('3D 场景加载完成！');
-    }).catch(function (e) {
-      console.error('模型加载失败:', e);
-      document.getElementById('modelProgress').style.display = 'none';
-      toast('模型加载失败: ' + e.message);
-    });
-  } catch (e) {
-    console.error('创建 Viewer 失败:', e);
-    document.getElementById('modelProgress').style.display = 'none';
-    toast('渲染器创建失败: ' + e.message);
-  }
-}
-
-// ============ 移动 ============
+// ========== 平滑移动 ==========
 function handleMovement() {
-  var speed = 0.2;
-  if (move.w) camera.translateZ(-speed);
-  if (move.s) camera.translateZ(speed);
-  if (move.a) camera.translateX(-speed);
-  if (move.d) camera.translateX(speed);
-  controls.target.copy(camera.position.clone().add(
-    camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10)
-  ));
+  var f=new THREE.Vector3();camera.getWorldDirection(f);
+  var fy=f.y;f.y=0;f.normalize();
+  var r=new THREE.Vector3().crossVectors(f,camera.up).normalize();
+  var s=0.4;
+
+  // 目标速度
+  var tv={x:0,y:0,z:0};
+  if(move.w){tv.x+=f.x*s;tv.z+=f.z*s;}
+  if(move.s){tv.x-=f.x*s;tv.z-=f.z*s;}
+  if(move.a){tv.x-=r.x*s;tv.z-=r.z*s;}
+  if(move.d){tv.x+=r.x*s;tv.z+=r.z*s;}
+  if(move.q)tv.y=s;
+  if(move.e)tv.y=-s;
+
+  // 平滑过渡
+  var lerpF=0.15;
+  curVel.x+=(tv.x-curVel.x)*lerpF;
+  curVel.y+=(tv.y-curVel.y)*lerpF;
+  curVel.z+=(tv.z-curVel.z)*lerpF;
+
+  camera.position.x+=curVel.x;camera.position.y+=curVel.y;camera.position.z+=curVel.z;
+  panTarget.x+=curVel.x;panTarget.y+=curVel.y;panTarget.z+=curVel.z;
 }
 
-// ============ 用户 Avatar ============
-function createAvatar(user) {
-  var head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.6, 16, 16),
-    new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 })
-  );
-  head.position.set(user.pos.x, user.pos.y + 1.5, user.pos.z);
-  head.castShadow = true;
-  head.name = user.id;
-
-  var body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.4, 0.45, 1.5, 8),
-    new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 })
-  );
-  body.position.y = 0.15;
-  head.add(body);
-
-  var canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 64;
-  var ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff'; ctx.font = '32px system-ui'; ctx.textAlign = 'center';
-  ctx.fillText(user.name, 128, 42);
-  var label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-  label.position.y = 2.2; label.scale.set(4, 1, 1);
-  head.add(label);
-
-  scene.add(head);
-  avatarMeshes[user.id] = head;
-}
-
-function updateAvatar(id, pos) {
-  var m = avatarMeshes[id];
-  if (m) { m.position.x = pos.x; m.position.z = pos.z; }
-}
-
-function removeAvatar(id) {
-  var m = avatarMeshes[id];
-  if (m) { scene.remove(m); delete avatarMeshes[id]; }
-}
-
-// ============ Socket ============
-function initSocket() {
-  var sock = io();
-  window.socket = sock;
-
-  sock.on('connect', function () {
-    sock.emit('join', { roomCode: roomCode, name: 'User' + Date.now().toString(36).slice(-4) });
-  });
-
-  sock.on('users', function (list) {
-    list.forEach(function (u) {
-      users[u.id] = u;
-      if (u.isMe) { myId = u.id; myColor = u.color; }
-      else createAvatar(u);
-    });
-  });
-
-  sock.on('user-joined', function (u) {
-    users[u.id] = u;
-    createAvatar(u);
-    if (micOn && u.id !== myId) connectPeer(u.id, true);
-  });
-
-  sock.on('user-moved', function (d) {
-    if (users[d.id]) users[d.id].pos = d.pos;
-    updateAvatar(d.id, d.pos);
-  });
-
-  sock.on('user-left', function (id) {
-    removeAvatar(id); delete users[id];
-  });
-
-  sock.on('signal', function (d) { handleSignal(d.from, d.data); });
-}
-
-// ============ WebRTC ============
-window.peerCons = {};
-
-function connectPeer(userId, isInitiator) {
-  if (window.peerCons[userId]) return;
-  var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-  if (localStream) localStream.getTracks().forEach(function (t) { pc.addTrack(t, localStream); });
-
-  pc.onicecandidate = function (e) {
-    if (e.candidate && window.socket) window.socket.emit('signal', { to: userId, data: { type: 'candidate', candidate: e.candidate } });
-  };
-  pc.ontrack = function (e) {
-    var audio = document.createElement('audio');
-    audio.srcObject = e.streams[0];
-    audio.autoplay = true;
-    document.body.appendChild(audio);
-    audio.play().catch(function () { });
-  };
-  pc.oniceconnectionstatechange = function () {
-    if (pc.iceConnectionState === 'connected') toast('语音已接通');
-    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-      try { pc.close(); } catch (e) { } delete window.peerCons[userId];
+// ========== 模型加载 ==========
+async function loadSplatModel(url) {
+  if(modelLoaded)return;
+  var p=document.getElementById('modelProgress');
+  var fl=document.getElementById('modelFill');
+  var pt=document.getElementById('modelPct');
+  p.style.display='block';
+  try{
+    fl.style.width='10%';pt.textContent='10%';
+    var res=await fetch(url);
+    var ab=await res.arrayBuffer();
+    fl.style.width='50%';pt.textContent='50%';
+    var vc=ab.byteLength/32,dv=new DataView(ab),cv=new Uint8Array(ab);
+    var pos=new Float32Array(vc*3),col=new Float32Array(vc*4);
+    for(var i=0;i<vc;i++){
+      var o=i*32;
+      pos[i*3]=dv.getFloat32(o,true);
+      pos[i*3+1]=dv.getFloat32(o+4,true);
+      pos[i*3+2]=dv.getFloat32(o+8,true);
+      col[i*4]=cv[o+24]/255;
+      col[i*4+1]=cv[o+25]/255;
+      col[i*4+2]=cv[o+26]/255;
+      col[i*4+3]=cv[o+27]/255;
     }
-  };
-  window.peerCons[userId] = pc;
-  if (isInitiator) {
-    pc.createOffer().then(function (offer) {
-      return pc.setLocalDescription(offer);
-    }).then(function () {
-      window.socket.emit('signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription } });
-    });
+    fl.style.width='80%';pt.textContent='80%';
+    var geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('color',new THREE.BufferAttribute(col,4));
+    splatMesh=new THREE.Points(geo,new THREE.PointsMaterial({
+      size:0.025,vertexColors:true,transparent:true,opacity:0.95,sizeAttenuation:true,depthWrite:false
+    }));
+    splatMesh.rotation.x=-Math.PI/2;
+    scene.add(splatMesh);
+    if(gridHelper)gridHelper.visible=false; // 隐藏网格
+    fl.style.width='100%';pt.textContent='100%';
+    modelLoaded=true;
+    setTimeout(function(){p.style.display='none';},300);
+    toast('模型加载完成！'+vc.toLocaleString()+'点');
+  }catch(e){
+    console.error(e);p.style.display='none';
+    toast('加载失败:'+e.message);
   }
 }
 
-async function handleSignal(userId, msg) {
-  var pc = window.peerCons[userId];
-  if (!pc && msg.type === 'offer') { connectPeer(userId, false); pc = window.peerCons[userId]; }
-  if (!pc) return;
-  try {
-    if (msg.type === 'offer') {
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      var ans = await pc.createAnswer();
-      await pc.setLocalDescription(ans);
-      window.socket.emit('signal', { to: userId, data: { type: 'answer', sdp: pc.localDescription } });
-    } else if (msg.type === 'answer') {
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    } else if (msg.type === 'candidate') {
-      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-    }
-  } catch (e) { console.error('signal error:', e); }
+// ========== Avatar ==========
+function createAvatar(u) {
+  var h=new THREE.Mesh(new THREE.SphereGeometry(0.6,16,16),new THREE.MeshStandardMaterial({color:u.color}));
+  h.position.set(u.pos.x,u.pos.y+1.5,u.pos.z);
+  var b=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.45,1.5,8),new THREE.MeshStandardMaterial({color:u.color}));
+  b.position.y=0.15;h.add(b);
+  var c=document.createElement('canvas');c.width=256;c.height=64;
+  var ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.font='32px system-ui';ctx.textAlign='center';
+  ctx.fillText(u.name,128,42);
+  var l=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));
+  l.position.y=2.2;l.scale.set(4,1,1);h.add(l);
+  scene.add(h);avatarMeshes[u.id]=h;
 }
+function updateAvatar(id,p){var m=avatarMeshes[id];if(m){m.position.x=p.x;m.position.z=p.z;}}
+function removeAvatar(id){var m=avatarMeshes[id];if(m){scene.remove(m);delete avatarMeshes[id];}}
 
-function closeAllPeers() {
-  Object.keys(window.peerCons).forEach(function (id) {
-    try { window.peerCons[id].close(); } catch (e) { }
-  });
-  window.peerCons = {};
+// ========== WebRTC 语音 ==========
+function connectPeer(uid,isInitiator){
+  if(peerCons[uid])return;
+  var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+  if(localStream)localStream.getTracks().forEach(function(t){pc.addTrack(t,localStream);});
+  pc.onicecandidate=function(e){if(e.candidate&&window.socket)window.socket.emit('signal',{to:uid,data:{type:'candidate',candidate:e.candidate}});};
+  pc.ontrack=function(e){
+    var a=document.createElement('audio');
+    a.srcObject=e.streams[0];a.autoplay=true;
+    document.body.appendChild(a);
+    a.play().catch(function(){document.addEventListener('click',function r(){a.play().catch(function(){});document.removeEventListener('click',r);},{once:true});});
+  };
+  pc.oniceconnectionstatechange=function(){
+    if(pc.iceConnectionState==='connected')toast('语音已接通');
+    if(pc.iceConnectionState==='disconnected'||pc.iceConnectionState==='failed'){try{pc.close();}catch(e){}delete peerCons[uid];}
+  };
+  peerCons[uid]=pc;
+  if(isInitiator)pc.createOffer().then(function(o){return pc.setLocalDescription(o);}).then(function(){window.socket.emit('signal',{to:uid,data:{type:'offer',sdp:pc.localDescription}});});
 }
-
-// ============ UI ============
-async function createRoom() {
-  var code = document.getElementById('roomInput').value.trim() || '';
-  var r = await fetch('/api/room', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code }) });
-  var d = await r.json();
-  if (d.error) { toast(d.error); return; }
-  document.getElementById('roomInput').value = d.code;
-  start(d.code);
+async function handleSignal(uid,msg){
+  var pc=peerCons[uid];
+  if(!pc&&msg.type==='offer'){connectPeer(uid,false);pc=peerCons[uid];}
+  if(!pc)return;
+  try{
+    if(msg.type==='offer'){await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));var ans=await pc.createAnswer();await pc.setLocalDescription(ans);window.socket.emit('signal',{to:uid,data:{type:'answer',sdp:pc.localDescription}});}
+    else if(msg.type==='answer')await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    else if(msg.type==='candidate')await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+  }catch(e){}
 }
-
-function joinRoom() {
-  var code = document.getElementById('roomInput').value.trim().toUpperCase();
-  if (!code || code.length < 4) { toast('请输入有效房间码'); return; }
-  start(code);
-}
-
-function start(code) {
-  roomCode = code;
-  document.getElementById('entry').style.display = 'none';
-  document.getElementById('toolbar').style.display = 'block';
-  document.getElementById('users').style.display = 'block';
-  document.getElementById('help').style.display = 'block';
-  init3D();
-  initSocket();
-  initInput();
-  animate();
-  toast('进入房间: ' + code);
-  // 延迟 1 秒自动加载模型
-  setTimeout(function () { loadGaussianModel(MODEL_URL); }, 1000);
-}
-
-async function toggleMic() {
-  if (!micOn) {
-    try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micOn = true;
-      document.getElementById('micBtn').textContent = '语音开';
-      document.getElementById('micBtn').classList.add('active');
-      Object.keys(users).forEach(function (id) { if (id !== myId) connectPeer(id, true); });
-    } catch (e) { toast('需要麦克风权限'); }
+async function toggleMic(){
+  if(!micOn){
+    try{localStream=await navigator.mediaDevices.getUserMedia({audio:true});micOn=true;}
+    catch(e){toast('需要麦克风权限');return;}
+    document.getElementById('micBtn').textContent='语音开';
+    document.getElementById('micBtn').classList.add('active');
+    Object.keys(users).forEach(function(id){if(id!==myId)connectPeer(id,true);});
   } else {
-    if (localStream) localStream.getTracks().forEach(function (t) { t.stop(); });
-    localStream = null; micOn = false;
-    document.getElementById('micBtn').textContent = '语音关';
+    if(localStream)localStream.getTracks().forEach(function(t){t.stop();});localStream=null;micOn=false;
+    document.getElementById('micBtn').textContent='语音关';
     document.getElementById('micBtn').classList.remove('active');
-    closeAllPeers();
+    Object.keys(peerCons).forEach(function(id){try{peerCons[id].close();}catch(e){}delete peerCons[id];});
   }
-  if (window.socket) window.socket.emit('mute', !micOn);
 }
 
-function shareRoom() {
-  navigator.clipboard.writeText(location.origin + '/?room=' + roomCode).then(function () { toast('链接已复制！'); });
-}
-
-function toast(msg) {
-  var el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
-  setTimeout(function () { el.classList.remove('show'); }, 2500);
-}
-
-function initInput() {
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'w' || e.key === 'W') move.w = 1;
-    if (e.key === 's' || e.key === 'S') move.s = 1;
-    if (e.key === 'a' || e.key === 'A') move.a = 1;
-    if (e.key === 'd' || e.key === 'D') move.d = 1;
+// ========== Socket ==========
+function initSocket(){
+  var s=io();window.socket=s;
+  s.on('connect',function(){s.emit('join',{roomCode:roomCode,name:'User'+Date.now().toString(36).slice(-4)});});
+  s.on('users',function(data){
+    var l=data.list||data; // 兼容旧格式
+    l.forEach(function(u){users[u.id]=u;if(u.isMe){myId=u.id;myColor=u.color;}else createAvatar(u);});
+    // 如果房间是展厅，加载模型
+    if(data.permanent){toast('展厅房间 - 加载模型中...');setTimeout(function(){loadSplatModel(MODEL_URL);},300);}
   });
-  document.addEventListener('keyup', function (e) {
-    if (e.key === 'w' || e.key === 'W') move.w = 0;
-    if (e.key === 's' || e.key === 'S') move.s = 0;
-    if (e.key === 'a' || e.key === 'A') move.a = 0;
-    if (e.key === 'd' || e.key === 'D') move.d = 0;
-  });
+  s.on('user-joined',function(u){users[u.id]=u;createAvatar(u);if(micOn)connectPeer(u.id,true);});
+  s.on('user-moved',function(d){if(users[d.id])users[d.id].pos=d.pos;updateAvatar(d.id,d.pos);});
+  s.on('user-left',function(id){removeAvatar(id);delete users[id];});
+  s.on('signal',function(d){handleSignal(d.from,d.data);});
 }
 
-// ============ 渲染循环 ============
-var lastSync = 0;
-function animate() {
-  requestAnimationFrame(animate);
+// ========== UI ==========
+async function createRoom(permanent){
+  var c=document.getElementById('roomInput').value.trim()||'';
+  var body={code:c,permanent:!!permanent};
+  if(permanent)body.adminKey=ADMIN_KEY; // 创建永久展厅需要管理员密钥
+  var r=await fetch('/api/room',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  var d=await r.json();
+  if(d.error){toast(d.error);return;}
+  document.getElementById('roomInput').value=d.code;start(d.code,!!permanent);
+}
+function joinRoom(){
+  var c=document.getElementById('roomInput').value.trim().toUpperCase();
+  if(!c||c.length<4){toast('请输入有效房间码');return;}
+  start(c);
+}
+function start(c,isShowroom){
+  roomCode=c;
+  document.getElementById('entry').style.display='none';
+  document.getElementById('toolbar').style.display='block';
+  document.getElementById('users').style.display='block';
+  document.getElementById('help').style.display='block';
+  init3D();initSocket();initInput();
+  active=true;animate();
+  toast('房间:'+c+(isShowroom?' (展厅)':''));
+  // 只有展厅房间加载模型
+  if(isShowroom)setTimeout(function(){loadSplatModel(MODEL_URL);},500);
+}
+function initInput(){
+  var km={w:'w',s:'s',a:'a',d:'d',q:'q',e:'e'};
+  document.addEventListener('keydown',function(ev){
+    for(var k in km)if(ev.key===k||ev.key===k.toUpperCase())move[k]=1;
+  });
+  document.addEventListener('keyup',function(ev){
+    for(var k in km)if(ev.key===k||ev.key===k.toUpperCase())move[k]=0;
+  });
+}
+function shareRoom(){navigator.clipboard.writeText(location.origin+'/?room='+roomCode).then(function(){toast('链接已复制！分享给朋友即可');});}
+function exitRoom(){
+  active=false;if(animateId){cancelAnimationFrame(animateId);animateId=null;}
+  // 断连
+  if(window.socket){window.socket.disconnect();window.socket=null;}
+  // 关麦
+  if(localStream){localStream.getTracks().forEach(function(t){t.stop();});localStream=null;}
+  micOn=false;
+  // 关peer
+  Object.keys(peerCons).forEach(function(id){try{peerCons[id].close();}catch(e){}delete peerCons[id];});
+  // 清用户
+  Object.keys(avatarMeshes).forEach(function(id){var m=avatarMeshes[id];if(m)scene.remove(m);});
+  avatarMeshes={};users={};myId=null;
+  // 关3D
+  if(renderer){renderer.dispose();document.body.removeChild(renderer.domElement);renderer=null;}
+  scene=null;camera=null;splatMesh=null;gridHelper=null;modelLoaded=false;
+  // 重置UI
+  document.getElementById('toolbar').style.display='none';
+  document.getElementById('users').style.display='none';
+  document.getElementById('help').style.display='none';
+  document.getElementById('modelProgress').style.display='none';
+  document.getElementById('entry').style.display='flex';
+  document.getElementById('micBtn').textContent='语音关';
+  document.getElementById('micBtn').classList.remove('active');
+  document.getElementById('roomInput').value='';
+  toast('已退出房间');
+}
+function toast(m){var e=document.getElementById('toast');e.textContent=m;e.classList.add('show');setTimeout(function(){e.classList.remove('show');},2500);}
+
+// ========== 渲染 ==========
+var lastSync=0;
+function animate(){
+  if(!active)return;
+  animateId=requestAnimationFrame(animate);
   handleMovement();
-  controls.update();
-  if (splatViewer && splatViewer.update) splatViewer.update();
-
-  var now = Date.now();
-  if (now - lastSync > 100 && window.socket) {
-    window.socket.emit('move', { x: camera.position.x, y: camera.position.y, z: camera.position.z });
-    lastSync = now;
-  }
-
-  document.getElementById('onlineCount').textContent = Object.keys(users).length;
-  document.getElementById('users').innerHTML = Object.values(users).map(function (u) {
-    return '<div class="user-item"><span class="user-dot" style="background:' + u.color + '" data-id="' + u.id + '"></span>' + (u.id === myId ? '我' : u.name) + '</div>';
+  var n=Date.now();
+  if(n-lastSync>100&&window.socket){window.socket.emit('move',{x:camera.position.x,y:camera.position.y,z:camera.position.z});lastSync=n;}
+  document.getElementById('onlineCount').textContent=Object.keys(users).length;
+  document.getElementById('users').innerHTML=Object.values(users).map(function(u){
+    return'<div class="user-item"><span class="user-dot" style="background:'+u.color+'"></span>'+(u.id===myId?'我':u.name)+'</div>';
   }).join('');
-
-  renderer.render(scene, camera);
+  renderer.render(scene,camera);
 }
 
-// 绑定事件
-document.getElementById('btnJoin').addEventListener('click', joinRoom);
-document.getElementById('btnCreate').addEventListener('click', createRoom);
-document.getElementById('btnShare').addEventListener('click', shareRoom);
-document.getElementById('micBtn').addEventListener('click', toggleMic);
-document.getElementById('roomInput').addEventListener('keypress', function (e) { if (e.key === 'Enter') joinRoom(); });
+// ========== 管理员检测 ==========
+var params=new URLSearchParams(location.search);
+var isAdmin=params.get('admin')==='1';
+var ADMIN_KEY='minsu2026'; // 与服务端一致
+if(isAdmin){
+  document.getElementById('adminBadge').style.display='inline';
+  document.getElementById('entryDesc').textContent='管理员模式 - 可创建或进入房间';
+  document.querySelectorAll('.admin-only').forEach(function(el){el.style.display='block';});
+}
+// 从分享链接自动填入房间码
+var shareRoomCode=params.get('room');
+if(shareRoomCode){
+  document.getElementById('roomInput').value=shareRoomCode.toUpperCase();
+  if(!isAdmin){
+    // 非管理员自动进入房间
+    setTimeout(function(){joinRoom();},600);
+  }
+}
+
+document.getElementById('btnJoin').addEventListener('click',joinRoom);
+document.getElementById('btnCreate').addEventListener('click',function(){createRoom(false);});
+document.getElementById('btnCreateShowroom').addEventListener('click',function(){createRoom(true);});
+document.getElementById('btnShare').addEventListener('click',shareRoom);
+document.getElementById('btnExit').addEventListener('click',exitRoom);
+document.getElementById('micBtn').addEventListener('click',toggleMic);
+document.getElementById('roomInput').addEventListener('keypress',function(e){if(e.key==='Enter')joinRoom();});
 </script>
 </body>
 </html>

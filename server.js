@@ -4,6 +4,8 @@ const { Server } = require('socket.io');
 const { join } = require('path');
 const https = require('https');
 
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'minsu2026';
+
 const app = express();
 const http = createServer(app);
 const io = new Server(http);
@@ -42,7 +44,8 @@ io.on('connection', (socket) => {
 
   socket.on('join', ({ roomCode, name }) => {
     const code = roomCode.toUpperCase();
-    if (!rooms[code]) rooms[code] = { users: {} };
+    // 允许加入不存在的房间（从分享链接直接进入）
+    if (!rooms[code]) rooms[code] = { users: {}, permanent: false };
 
     currentRoom = code;
     socket.join(code);
@@ -58,7 +61,7 @@ io.on('connection', (socket) => {
 
     // 发房间内已有用户列表给新人
     const users = Object.values(rooms[code].users).map(u => u.id === socket.id ? { ...u, isMe: true } : u);
-    socket.emit('users', users);
+    socket.emit('users', { list: users, permanent: rooms[code].permanent });
     // 广播新人给其他人
     socket.to(code).emit('user-joined', currentUser);
   });
@@ -83,19 +86,26 @@ io.on('connection', (socket) => {
     if (currentRoom && rooms[currentRoom]) {
       delete rooms[currentRoom].users[socket.id];
       socket.to(currentRoom).emit('user-left', socket.id);
-      // 房间永久保留，不删除
+      // 只删除非永久的空房间
+      if (!rooms[currentRoom].permanent && Object.keys(rooms[currentRoom].users).length === 0) delete rooms[currentRoom];
     }
   });
 });
 
 app.post('/api/room', express.json(), (req, res) => {
   var code = (req.body.code || '').toString().toUpperCase().trim();
-  // 验证：4-12位字母数字
+  var permanent = req.body.permanent || false;
+  
+  // 创建永久展厅需要管理员密钥
+  if (permanent && req.body.adminKey !== ADMIN_SECRET) {
+    return res.json({ code: '', error: '无权创建展厅，仅管理员可操作' });
+  }
+  
   if (!code || !/^[A-Z0-9]{4,12}$/.test(code)) {
     code = genCode();
   }
   if (rooms[code]) return res.json({ code: '', error: '房间码已被占用' });
-  rooms[code] = { users: {} };
+  rooms[code] = { users: {}, permanent: permanent };
   res.json({ code });
 });
 
