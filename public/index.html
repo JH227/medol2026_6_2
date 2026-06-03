@@ -34,7 +34,6 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
 
 #help{display:none;position:fixed;bottom:90px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.15);pointer-events:none}
 
-/* 模型加载进度 */
 #modelProgress{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:60;background:rgba(0,0,0,.85);border-radius:16px;padding:24px 32px;text-align:center}
 #modelProgress .bar{width:260px;height:6px;background:#2a2a45;border-radius:3px;margin-top:12px;overflow:hidden}
 #modelProgress .fill{width:0%;height:100%;background:#534AB7;transition:width .3s}
@@ -44,7 +43,7 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
 <body>
 
 <div id="entry"><div class="card">
-  <h2>3D 多人空间</h2>
+  <h2>元宇宙展厅</h2>
   <p>创建房间，邀请朋友一起探索</p>
   <input id="roomInput" type="text" maxlength="12" placeholder="输入房间码（4-12位）" autocomplete="off" style="letter-spacing:1px;font-size:16px">
   <button class="btn btn-primary" id="btnJoin">进入房间</button>
@@ -55,21 +54,23 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
   <div class="toolbar-inner">
     <button id="micBtn" class="tool-btn">语音关</button>
     <button class="tool-btn" id="btnShare">分享</button>
-    <button class="tool-btn" id="btnModel" style="display:none">加载模型</button>
     <span class="tool-badge">在线 <span id="onlineCount">1</span></span>
   </div>
 </div>
 
 <div id="users"></div>
 <div id="toast"></div>
-<div id="help">WASD 移动 | 鼠标拖拽旋转 | 滚轮缩放</div>
+<div id="help">WASD 移动 | 鼠标拖拽旋转 | 滚轮缩放 | 右键平移</div>
 <div id="modelProgress"><div class="txt">正在加载 3D 场景模型...</div><div class="bar"><div class="fill" id="modelFill"></div></div><div class="txt" id="modelPct">0%</div></div>
 
-<!-- UMD 加载（不是 ES Module，GaussianSplats3D 需要全局 THREE） -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
 <script src="/js/gaussian-splats-3d.umd.js"></script>
 <script src="/socket.io/socket.io.js"></script>
+
+<script>
+// 检查 Three.js 是否加载成功
+if (!window.THREE) { document.body.innerHTML = '<h1 style="color:red;padding:40px">Three.js 加载失败，请刷新</h1>'; }
+</script>
 
 <script>
 // ============ 全局状态 ============
@@ -82,14 +83,308 @@ var avatarMeshes = {};
 var splatViewer = null;
 var modelLoaded = false;
 
-// ============ 房间入口 ============
-async function createRoom() {
-  var customCode = document.getElementById('roomInput').value.trim();
-  var r = await fetch('/api/room', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: customCode })
+// 模型下载链接
+var MODEL_URL = 'https://github.com/JH227/medol2026_6_2/releases/download/v0.1/minisu.splat';
+
+// ============ 精简 OrbitControls ============
+function makeOrbitControls(cam, el, tgt) {
+  var target = new THREE.Vector3(tgt[0], tgt[1], tgt[2]);
+  var pMin = 0.1, pMax = Math.PI * 0.85, dMin = 3, dMax = 80;
+  var md = false, mdx = 0, mdy = 0, rl = false;
+
+  el.addEventListener('mousedown', function (e) {
+    if (e.button === 0) { md = true; mdx = e.clientX; mdy = e.clientY; }
+    if (e.button === 2) { rl = true; mdx = e.clientX; mdy = e.clientY; }
   });
+  el.addEventListener('mousemove', function (e) {
+    if (!md && !rl) return;
+    var dx = e.clientX - mdx, dy = e.clientY - mdy;
+    if (md) {
+      var s = new THREE.Spherical().setFromVector3(cam.position.clone().sub(target));
+      s.theta -= dx * 0.005;
+      s.phi -= dy * 0.005;
+      s.phi = Math.max(pMin, Math.min(pMax, s.phi));
+      s.radius = Math.max(dMin, Math.min(dMax, s.radius));
+      cam.position.copy(target).add(new THREE.Vector3().setFromSpherical(s));
+    }
+    if (rl) {
+      var fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
+      var up = new THREE.Vector3(0, 1, 0);
+      var side = new THREE.Vector3().crossVectors(up, fwd).normalize();
+      var pan = side.multiplyScalar(dx * 0.1).add(up.clone().multiplyScalar(-dy * 0.1));
+      target.add(pan); cam.position.add(pan);
+    }
+    mdx = e.clientX; mdy = e.clientY;
+  });
+  el.addEventListener('mouseup', function () { md = false; rl = false; });
+  el.addEventListener('wheel', function (e) {
+    var d = cam.position.distanceTo(target);
+    d += e.deltaY * 0.02;
+    d = Math.max(dMin, Math.min(dMax, d));
+    cam.position.copy(target).add(cam.position.clone().sub(target).normalize().multiplyScalar(d));
+  });
+  el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  el.addEventListener('touchstart', function (e) {
+    if (e.touches.length === 1) { md = true; mdx = e.touches[0].clientX; mdy = e.touches[0].clientY; }
+  }, { passive: false });
+  el.addEventListener('touchmove', function (e) {
+    if (!md || e.touches.length !== 1) return;
+    e.preventDefault();
+    var dx = e.touches[0].clientX - mdx, dy = e.touches[0].clientY - mdy;
+    var s = new THREE.Spherical().setFromVector3(cam.position.clone().sub(target));
+    s.theta -= dx * 0.005; s.phi -= dy * 0.005;
+    s.phi = Math.max(pMin, Math.min(pMax, s.phi));
+    cam.position.copy(target).add(new THREE.Vector3().setFromSpherical(s));
+    mdx = e.touches[0].clientX; mdy = e.touches[0].clientY;
+  }, { passive: false });
+  return { target: target, update: function () { cam.lookAt(target); } };
+}
+
+// ============ 3D 初始化 ============
+function init3D() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111122);
+  scene.fog = new THREE.Fog(0x111122, 30, 120);
+
+  camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 200);
+  camera.position.set(8, 12, 25);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.domElement.style.position = 'fixed';
+  renderer.domElement.style.top = '0';
+  renderer.domElement.style.left = '0';
+  renderer.domElement.style.zIndex = '1';
+  document.body.appendChild(renderer.domElement);
+
+  controls = makeOrbitControls(camera, renderer.domElement, [0, 1, 0]);
+
+  scene.add(new THREE.AmbientLight(0x334466, 0.6));
+  var dir = new THREE.DirectionalLight(0xffeedd, 0.8);
+  dir.position.set(20, 30, 10);
+  scene.add(dir);
+
+  var ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(60, 60),
+    new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+
+  var grid = new THREE.GridHelper(60, 60, 0x333355, 0x222244);
+  grid.position.y = 0.01;
+  scene.add(grid);
+
+  window.addEventListener('resize', function () {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+// ============ 高斯模型加载 ============
+function loadGaussianModel(url) {
+  if (!url) { toast('未配置模型 URL'); return; }
+  if (modelLoaded) { toast('模型已加载'); return; }
+
+  var GS = window['Gaussian Splats 3D'];
+  if (!GS) { toast('高斯渲染库未找到'); return; }
+
+  document.getElementById('modelProgress').style.display = 'block';
+  var fill = document.getElementById('modelFill');
+  var pct = document.getElementById('modelPct');
+
+  try {
+    splatViewer = new GS.Viewer({
+      cameraUp: [0, 1, 0],
+      initialCameraPosition: [10, 10, 30],
+      initialCameraLookAt: [0, 5, 0],
+      sharedMemoryForWorkers: false,
+      selfDrivenMode: false,
+      renderer: renderer,
+      camera: camera,
+      scene: scene,
+      controls: controls,
+      showLoadingUI: true
+    });
+
+    fill.style.width = '5%'; pct.textContent = '5%';
+
+    splatViewer.addSplatScene(url, {
+      splatAlphaRemovalThreshold: 5,
+      showLoadingUI: true,
+      onProgress: function (p) {
+        var pp = Math.round(p * 100);
+        fill.style.width = pp + '%';
+        pct.textContent = pp + '%';
+      }
+    }).then(function () {
+      modelLoaded = true;
+      document.getElementById('modelProgress').style.display = 'none';
+      toast('3D 场景加载完成！');
+    }).catch(function (e) {
+      console.error('模型加载失败:', e);
+      document.getElementById('modelProgress').style.display = 'none';
+      toast('模型加载失败: ' + e.message);
+    });
+  } catch (e) {
+    console.error('创建 Viewer 失败:', e);
+    document.getElementById('modelProgress').style.display = 'none';
+    toast('渲染器创建失败: ' + e.message);
+  }
+}
+
+// ============ 移动 ============
+function handleMovement() {
+  var speed = 0.2;
+  if (move.w) camera.translateZ(-speed);
+  if (move.s) camera.translateZ(speed);
+  if (move.a) camera.translateX(-speed);
+  if (move.d) camera.translateX(speed);
+  controls.target.copy(camera.position.clone().add(
+    camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10)
+  ));
+}
+
+// ============ 用户 Avatar ============
+function createAvatar(user) {
+  var head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.6, 16, 16),
+    new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 })
+  );
+  head.position.set(user.pos.x, user.pos.y + 1.5, user.pos.z);
+  head.castShadow = true;
+  head.name = user.id;
+
+  var body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.45, 1.5, 8),
+    new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 })
+  );
+  body.position.y = 0.15;
+  head.add(body);
+
+  var canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.font = '32px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText(user.name, 128, 42);
+  var label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+  label.position.y = 2.2; label.scale.set(4, 1, 1);
+  head.add(label);
+
+  scene.add(head);
+  avatarMeshes[user.id] = head;
+}
+
+function updateAvatar(id, pos) {
+  var m = avatarMeshes[id];
+  if (m) { m.position.x = pos.x; m.position.z = pos.z; }
+}
+
+function removeAvatar(id) {
+  var m = avatarMeshes[id];
+  if (m) { scene.remove(m); delete avatarMeshes[id]; }
+}
+
+// ============ Socket ============
+function initSocket() {
+  var sock = io();
+  window.socket = sock;
+
+  sock.on('connect', function () {
+    sock.emit('join', { roomCode: roomCode, name: 'User' + Date.now().toString(36).slice(-4) });
+  });
+
+  sock.on('users', function (list) {
+    list.forEach(function (u) {
+      users[u.id] = u;
+      if (u.isMe) { myId = u.id; myColor = u.color; }
+      else createAvatar(u);
+    });
+  });
+
+  sock.on('user-joined', function (u) {
+    users[u.id] = u;
+    createAvatar(u);
+    if (micOn && u.id !== myId) connectPeer(u.id, true);
+  });
+
+  sock.on('user-moved', function (d) {
+    if (users[d.id]) users[d.id].pos = d.pos;
+    updateAvatar(d.id, d.pos);
+  });
+
+  sock.on('user-left', function (id) {
+    removeAvatar(id); delete users[id];
+  });
+
+  sock.on('signal', function (d) { handleSignal(d.from, d.data); });
+}
+
+// ============ WebRTC ============
+window.peerCons = {};
+
+function connectPeer(userId, isInitiator) {
+  if (window.peerCons[userId]) return;
+  var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  if (localStream) localStream.getTracks().forEach(function (t) { pc.addTrack(t, localStream); });
+
+  pc.onicecandidate = function (e) {
+    if (e.candidate && window.socket) window.socket.emit('signal', { to: userId, data: { type: 'candidate', candidate: e.candidate } });
+  };
+  pc.ontrack = function (e) {
+    var audio = document.createElement('audio');
+    audio.srcObject = e.streams[0];
+    audio.autoplay = true;
+    document.body.appendChild(audio);
+    audio.play().catch(function () { });
+  };
+  pc.oniceconnectionstatechange = function () {
+    if (pc.iceConnectionState === 'connected') toast('语音已接通');
+    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+      try { pc.close(); } catch (e) { } delete window.peerCons[userId];
+    }
+  };
+  window.peerCons[userId] = pc;
+  if (isInitiator) {
+    pc.createOffer().then(function (offer) {
+      return pc.setLocalDescription(offer);
+    }).then(function () {
+      window.socket.emit('signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription } });
+    });
+  }
+}
+
+async function handleSignal(userId, msg) {
+  var pc = window.peerCons[userId];
+  if (!pc && msg.type === 'offer') { connectPeer(userId, false); pc = window.peerCons[userId]; }
+  if (!pc) return;
+  try {
+    if (msg.type === 'offer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      var ans = await pc.createAnswer();
+      await pc.setLocalDescription(ans);
+      window.socket.emit('signal', { to: userId, data: { type: 'answer', sdp: pc.localDescription } });
+    } else if (msg.type === 'answer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    } else if (msg.type === 'candidate') {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+    }
+  } catch (e) { console.error('signal error:', e); }
+}
+
+function closeAllPeers() {
+  Object.keys(window.peerCons).forEach(function (id) {
+    try { window.peerCons[id].close(); } catch (e) { }
+  });
+  window.peerCons = {};
+}
+
+// ============ UI ============
+async function createRoom() {
+  var code = document.getElementById('roomInput').value.trim() || '';
+  var r = await fetch('/api/room', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code }) });
   var d = await r.json();
   if (d.error) { toast(d.error); return; }
   document.getElementById('roomInput').value = d.code;
@@ -112,222 +407,40 @@ function start(code) {
   initSocket();
   initInput();
   animate();
-  // 自动加载模型
-  document.getElementById('btnModel').style.display = 'inline-block';
-  setTimeout(function () { loadGaussianModel(MODEL_URL); }, 500);
+  toast('进入房间: ' + code);
+  // 延迟 1 秒自动加载模型
+  setTimeout(function () { loadGaussianModel(MODEL_URL); }, 1000);
 }
 
-// ============ Socket.io ============
-function initSocket() {
-  var socket = io();
-  window.socket = socket;
-
-  socket.on('connect', function () {
-    socket.emit('join', { roomCode: roomCode, name: 'User' + Date.now().toString(36).slice(-4) });
-  });
-
-  socket.on('users', function (list) {
-    list.forEach(function (u) {
-      users[u.id] = u;
-      if (u.isMe) { myId = u.id; myColor = u.color; }
-      else createAvatar(u);
-    });
-  });
-
-  socket.on('user-joined', function (u) {
-    users[u.id] = u;
-    createAvatar(u);
-    if (micOn && u.id !== myId) connectPeer(u.id, true);
-  });
-
-  socket.on('user-moved', function (d) {
-    if (users[d.id]) users[d.id].pos = d.pos;
-    updateAvatar(d.id, d.pos);
-  });
-
-  socket.on('user-left', function (id) {
-    removeAvatar(id);
-    delete users[id];
-  });
-
-  socket.on('signal', function (d) {
-    console.log('收到信令:', d.from, d.data.type);
-    handleSignal(d.from, d.data);
-  });
-
-  socket.on('user-muted', function (d) {
-    var items = document.querySelectorAll('.user-dot');
-    items.forEach(function (item) {
-      if (item.getAttribute('data-id') === d.id) item.style.background = d.muted ? '#444' : '#1D9E75';
-    });
-  });
-}
-
-// ============ Three.js 3D ============
-function init3D() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111122);
-  scene.fog = new THREE.Fog(0x111122, 30, 120);
-
-  camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 200);
-  camera.position.set(8, 12, 25);
-  camera.lookAt(0, 1, 0);
-
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  document.body.appendChild(renderer.domElement);
-  renderer.domElement.style.position = 'fixed';
-  renderer.domElement.style.top = '0';
-  renderer.domElement.style.left = '0';
-  renderer.domElement.style.zIndex = '1';
-
-  // OrbitControls (UMD 版本)
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 1, 0);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.1;
-  controls.maxPolarAngle = Math.PI * 0.85;
-  controls.minDistance = 3;
-  controls.maxDistance = 80;
-  controls.update();
-
-  // 光照
-  scene.add(new THREE.AmbientLight(0x334466, 0.6));
-  var dir = new THREE.DirectionalLight(0xffeedd, 0.8);
-  dir.position.set(20, 30, 10);
-  dir.castShadow = true;
-  scene.add(dir);
-
-  // 地面
-  var groundGeo = new THREE.PlaneGeometry(60, 60);
-  var ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 }));
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
-
-  // 网格
-  var grid = new THREE.GridHelper(60, 60, 0x333355, 0x222244);
-  grid.position.y = 0.01;
-  scene.add(grid);
-
-  window.addEventListener('resize', function () {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-  });
-}
-
-// ============ 高斯泼溅模型加载 ============
-// 模型 URL — 暂时留空，待模型文件托管后填入
-// var MODEL_URL = '/models/minisu_preview.ply';
-var MODEL_URL = 'https://github.com/JH227/medol2026_6_2/releases/download/v0.1/minisu.splat';
-
-function loadGaussianModel(url) {
-  if (!url) { toast('未配置模型 URL'); return; }
-  if (modelLoaded) { toast('模型已加载'); return; }
-
-  var prog = document.getElementById('modelProgress');
-  var fill = document.getElementById('modelFill');
-  var pct = document.getElementById('modelPct');
-  prog.style.display = 'block';
-
-  var GS3D = window['Gaussian Splats 3D'];
-  if (!GS3D) { toast('高斯渲染库未加载'); prog.style.display = 'none'; return; }
-
-  try {
-    splatViewer = new GS3D.Viewer({
-      cameraUp: [0, 1, 0],
-      initialCameraPosition: [10, 10, 30],
-      initialCameraLookAt: [0, 5, 0],
-      sharedMemoryForWorkers: false,
-      selfDrivenMode: false,
-      renderer: renderer,
-      camera: camera,
-      scene: scene,
-      controls: controls,
-      showLoadingUI: true
-    });
-
-    var updatePct = function (p) {
-      p = Math.round(p * 100);
-      fill.style.width = p + '%';
-      pct.textContent = p + '%';
-    };
-
-    // 模拟进度（库自身有进度但不好拦截）
-    updatePct(0.05);
-
-    splatViewer.addSplatScene(url, {
-      splatAlphaRemovalThreshold: 5,
-      showLoadingUI: true,
-      onProgress: updatePct
-    }).then(function () {
-      modelLoaded = true;
-      prog.style.display = 'none';
-      document.getElementById('btnModel').textContent = '模型已加载';
-      toast('3D 场景加载完成！');
-    }).catch(function (e) {
-      console.error('模型加载失败:', e);
-      prog.style.display = 'none';
-      toast('模型加载失败: ' + e.message);
-    });
-
-  } catch (e) {
-    console.error('创建 Viewer 失败:', e);
-    prog.style.display = 'none';
-    toast('创建渲染器失败: ' + e.message);
+async function toggleMic() {
+  if (!micOn) {
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micOn = true;
+      document.getElementById('micBtn').textContent = '语音开';
+      document.getElementById('micBtn').classList.add('active');
+      Object.keys(users).forEach(function (id) { if (id !== myId) connectPeer(id, true); });
+    } catch (e) { toast('需要麦克风权限'); }
+  } else {
+    if (localStream) localStream.getTracks().forEach(function (t) { t.stop(); });
+    localStream = null; micOn = false;
+    document.getElementById('micBtn').textContent = '语音关';
+    document.getElementById('micBtn').classList.remove('active');
+    closeAllPeers();
   }
+  if (window.socket) window.socket.emit('mute', !micOn);
 }
 
-// ============ 用户 Avatar ============
-function createAvatar(user) {
-  var sphereGeo = new THREE.SphereGeometry(0.6, 16, 16);
-  var sphereMat = new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 });
-  var head = new THREE.Mesh(sphereGeo, sphereMat);
-  head.castShadow = true;
-  head.position.set(user.pos.x, user.pos.y + 1.5, user.pos.z);
-
-  var bodyGeo = new THREE.CylinderGeometry(0.4, 0.45, 1.5, 8);
-  var bodyMat = new THREE.MeshStandardMaterial({ color: user.color, emissive: user.color, emissiveIntensity: 0.2 });
-  var body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.y = 0.15;
-  head.add(body);
-
-  head.name = user.id;
-  head.material = sphereMat; // 保存引用用于语音发光
-  scene.add(head);
-  avatarMeshes[user.id] = head;
-
-  // 名字标签
-  var canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 64;
-  var ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff'; ctx.font = '32px system-ui'; ctx.textAlign = 'center';
-  ctx.fillText(user.name, 128, 42);
-  var tex = new THREE.CanvasTexture(canvas);
-  var labelMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
-  var label = new THREE.Sprite(labelMat);
-  label.position.y = 2.2;
-  label.scale.set(4, 1, 1);
-  head.add(label);
+function shareRoom() {
+  navigator.clipboard.writeText(location.origin + '/?room=' + roomCode).then(function () { toast('链接已复制！'); });
 }
 
-function updateAvatar(id, pos) {
-  var mesh = avatarMeshes[id];
-  if (mesh) {
-    mesh.position.x = pos.x;
-    mesh.position.z = pos.z;
-  }
+function toast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(function () { el.classList.remove('show'); }, 2500);
 }
 
-function removeAvatar(id) {
-  var mesh = avatarMeshes[id];
-  if (mesh) { scene.remove(mesh); delete avatarMeshes[id]; }
-}
-
-// ============ 移动控制 ============
 function initInput() {
   document.addEventListener('keydown', function (e) {
     if (e.key === 'w' || e.key === 'W') move.w = 1;
@@ -341,130 +454,6 @@ function initInput() {
     if (e.key === 'a' || e.key === 'A') move.a = 0;
     if (e.key === 'd' || e.key === 'D') move.d = 0;
   });
-}
-
-function handleMovement() {
-  var speed = 0.2;
-  if (move.w) camera.translateZ(-speed);
-  if (move.s) camera.translateZ(speed);
-  if (move.a) camera.translateX(-speed);
-  if (move.d) camera.translateX(speed);
-  controls.target.copy(camera.position.clone().add(
-    camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10)
-  ));
-}
-
-// ============ 语音 ============
-async function toggleMic() {
-  if (!micOn) {
-    try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micOn = true;
-      document.getElementById('micBtn').textContent = '语音开';
-      document.getElementById('micBtn').classList.add('active');
-      Object.keys(users).forEach(function (id) {
-        if (id !== myId) connectPeer(id, true);
-      });
-    } catch (e) {
-      toast('需要麦克风权限');
-    }
-  } else {
-    if (localStream) localStream.getTracks().forEach(function (t) { t.stop(); });
-    localStream = null; micOn = false;
-    document.getElementById('micBtn').textContent = '语音关';
-    document.getElementById('micBtn').classList.remove('active');
-    closeAllPeers();
-  }
-  if (window.socket) window.socket.emit('mute', !micOn);
-}
-
-// ============ WebRTC ============
-window.peerCons = {};
-
-function connectPeer(userId, isInitiator) {
-  if (window.peerCons[userId]) return;
-
-  var pc = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-  });
-
-  if (localStream) {
-    localStream.getTracks().forEach(function (t) { pc.addTrack(t, localStream); });
-  }
-
-  pc.onicecandidate = function (e) {
-    if (e.candidate && window.socket) {
-      window.socket.emit('signal', { to: userId, data: { type: 'candidate', candidate: e.candidate } });
-    }
-  };
-
-  pc.ontrack = function (e) {
-    console.log('WebRTC: 收到远程音频');
-    var audio = document.createElement('audio');
-    audio.srcObject = e.streams[0];
-    audio.autoplay = true;
-    document.body.appendChild(audio);
-    audio.play().catch(function () {
-      document.addEventListener('click', function r() {
-        audio.play().catch(function () { });
-        document.removeEventListener('click', r);
-      }, { once: true });
-    });
-  };
-
-  pc.oniceconnectionstatechange = function () {
-    console.log('ICE状态:', pc.iceConnectionState);
-    if (pc.iceConnectionState === 'connected') {
-      toast('语音已接通');
-      var mesh = avatarMeshes[userId];
-      if (mesh && mesh.material) mesh.material.emissiveIntensity = 0.6;
-    }
-    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-      var m2 = avatarMeshes[userId];
-      if (m2 && m2.material) m2.material.emissiveIntensity = 0.2;
-      try { pc.close(); } catch (e) { }
-      delete window.peerCons[userId];
-    }
-  };
-
-  window.peerCons[userId] = pc;
-  if (isInitiator) createAndSendOffer(pc, userId);
-}
-
-async function createAndSendOffer(pc, userId) {
-  try {
-    var offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    window.socket.emit('signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription } });
-  } catch (e) { console.error('offer:', e); }
-}
-
-async function handleSignal(userId, msg) {
-  var pc = window.peerCons[userId];
-  if (!pc && msg.type === 'offer') {
-    connectPeer(userId, false);
-    pc = window.peerCons[userId];
-  }
-  if (!pc) return;
-  try {
-    if (msg.type === 'offer') {
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      var answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      window.socket.emit('signal', { to: userId, data: { type: 'answer', sdp: pc.localDescription } });
-    } else if (msg.type === 'answer') {
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    } else if (msg.type === 'candidate') {
-      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-    }
-  } catch (e) { console.error('signal:', e); }
-}
-
-function closeAllPeers() {
-  Object.keys(window.peerCons).forEach(function (id) {
-    try { window.peerCons[id].close(); } catch (e) { }
-  });
-  window.peerCons = {};
 }
 
 // ============ 渲染循环 ============
@@ -481,26 +470,12 @@ function animate() {
     lastSync = now;
   }
 
-  var count = Object.keys(users).length;
-  document.getElementById('onlineCount').textContent = count;
-  var userList = document.getElementById('users');
-  userList.innerHTML = Object.values(users).map(function (u) {
+  document.getElementById('onlineCount').textContent = Object.keys(users).length;
+  document.getElementById('users').innerHTML = Object.values(users).map(function (u) {
     return '<div class="user-item"><span class="user-dot" style="background:' + u.color + '" data-id="' + u.id + '"></span>' + (u.id === myId ? '我' : u.name) + '</div>';
   }).join('');
 
   renderer.render(scene, camera);
-}
-
-function shareRoom() {
-  navigator.clipboard.writeText(location.origin + '/?room=' + roomCode).then(function () {
-    toast('链接已复制！发给朋友即可加入');
-  });
-}
-
-function toast(msg) {
-  var el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
-  setTimeout(function () { el.classList.remove('show'); }, 2500);
 }
 
 // 绑定事件
@@ -508,9 +483,6 @@ document.getElementById('btnJoin').addEventListener('click', joinRoom);
 document.getElementById('btnCreate').addEventListener('click', createRoom);
 document.getElementById('btnShare').addEventListener('click', shareRoom);
 document.getElementById('micBtn').addEventListener('click', toggleMic);
-document.getElementById('btnModel').addEventListener('click', function () {
-  loadGaussianModel(MODEL_URL || prompt('输入模型文件 URL (.ply 或 .splat)'));
-});
 document.getElementById('roomInput').addEventListener('keypress', function (e) { if (e.key === 'Enter') joinRoom(); });
 </script>
 </body>
