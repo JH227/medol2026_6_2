@@ -59,9 +59,9 @@ body{overflow:hidden;font-family:system-ui,sans-serif;background:#000;color:#eee
 </script>
 <script type="module">
 import * as THREE from 'three';
-import { DropInViewer } from '/lib/gaussian-splats-3d.module.js';
+import { Viewer } from '/lib/gaussian-splats-3d.module.js';
 
-var roomCode, myId, myColor, scene, camera, renderer, gsViewer=null, gridHelper, modelLoaded=false;
+var roomCode, myId, myColor, scene, camera, renderer, gsRenderer=null, gridHelper, modelLoaded=false;
 var users={}, avatarMeshes={};
 var move={w:0,s:0,a:0,d:0,q:0,e:0};
 var curVel={x:0,y:0,z:0};
@@ -166,22 +166,29 @@ async function loadSplatModel(url) {
   p.style.display='block';
   fl.style.width='5%';pt.textContent='5%';
   try{
-    gsViewer=new DropInViewer({
+    gsRenderer=new Viewer({
+      threeScene:scene,
       camera:camera,
       renderer:renderer,
+      selfDrivenMode:false,
+      useBuiltInControls:false,
       sharedMemoryForWorkers:false,
+      gpuAcceleratedSort:true,
       integerBasedSort:true,
-      gpuAcceleratedSort:true
+      cameraUp:[0,1,0],
+      initialCameraPosition:[camera.position.x,camera.position.y,camera.position.z],
+      initialCameraLookAt:[0,1,0]
     });
-    scene.add(gsViewer);
-    await gsViewer.addSplatScene(url,{
+    var lastPct=0;
+    await gsRenderer.addSplatScene(url,{
       showLoadingUI:false,
       splatAlphaRemovalThreshold:5,
-      rotation:[0,0,0,1],
-      scale:[1,1,1],
       onProgress:function(pct){
-        fl.style.width=(5+pct*0.9)+'%';
-        pt.textContent=Math.round(5+pct*0.9)+'%';
+        // 确保进度只增不减
+        if(pct>lastPct)lastPct=pct;
+        var display=5+lastPct*0.9;
+        fl.style.width=display+'%';
+        pt.textContent=Math.round(display)+'%';
       }
     });
     fl.style.width='100%';pt.textContent='100%';
@@ -318,7 +325,7 @@ function exitRoom(){
   // 关peer
   Object.keys(peerCons).forEach(function(id){try{peerCons[id].close();}catch(e){}delete peerCons[id];});
   // 清GS
-  if(gsViewer){gsViewer.dispose();if(gsViewer.parent)gsViewer.parent.remove(gsViewer);gsViewer=null;}
+  if(gsRenderer){gsRenderer.dispose();gsRenderer=null;}
   // 清用户
   Object.keys(avatarMeshes).forEach(function(id){var m=avatarMeshes[id];if(m)scene.remove(m);});
   avatarMeshes={};users={};myId=null;
@@ -350,7 +357,12 @@ function animate(){
   document.getElementById('users').innerHTML=Object.values(users).map(function(u){
     return'<div class="user-item"><span class="user-dot" style="background:'+u.color+'"></span>'+(u.id===myId?'我':u.name)+'</div>';
   }).join('');
-  renderer.render(scene,camera);
+  if(gsRenderer&&modelLoaded){
+    gsRenderer.update(renderer,camera);
+    gsRenderer.render();
+  }else{
+    renderer.render(scene,camera);
+  }
 }
 
 // ========== 管理员检测 ==========
